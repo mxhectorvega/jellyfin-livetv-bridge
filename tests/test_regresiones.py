@@ -235,7 +235,7 @@ def test_bind_ip_vacio_por_defecto(monkeypatch):
 
 def test_sources_yml_pisa_al_entorno(monkeypatch):
     monkeypatch.setenv("LVB_BIND_IP", "1.1.1.1")
-    assert Settings.from_env({"bind_ip": "10.0.0.5"}).bind_ip == "10.0.0.5"
+    assert Settings.from_env({"bind_ip": "192.168.1.60"}).bind_ip == "192.168.1.60"
 
 
 def test_valores_de_rele_por_defecto(monkeypatch):
