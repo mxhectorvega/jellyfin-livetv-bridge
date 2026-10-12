@@ -2,7 +2,7 @@
 
 Une las etapas y arranca el servicio:
 
-    ingest -> probe -> normalize -> epg -> playlist -> API + health
+    ingest -> normalize -> respaldo -> probe -> epg -> playlist -> API + health
 
 - Discussion: el pipeline se corre una vez al arrancar y luego se repite cada
   ``epg.refresh_hours`` (configurable). El monitor de salud corre en paralelo
@@ -37,7 +37,7 @@ log = get_logger("main")
 # Orden de operaciones del pipeline. Cada etapa es independiente salvo por el
 # orden: validar ANTES de normalizar permite deduplicar conservando el canal
 # que de verdad responde.
-PIPELINE_STAGES = ("ingest", "probe", "normalize", "epg", "playlist")
+PIPELINE_STAGES = ("ingest", "normalize", "respaldo", "probe", "epg", "playlist")
 
 
 async def run_pipeline(state: AppState) -> dict[str, Any]:
@@ -56,15 +56,21 @@ async def run_pipeline(state: AppState) -> dict[str, Any]:
             channels = await asyncio.to_thread(ingest, settings, cfg)
             report["ingeridos"] = len(channels)
 
+            # El ORDEN importa: normalizar primero fija los ids estables, y
+            # recien entonces se pueden asociar los respaldos por id. La sonda
+            # va DESPUES, porque necesita saber cuales son los respaldos: sin
+            # ellos miraba solo la principal y deshabilitaba canales que tenian
+            # una alterna viva (medido el 2026-10-12 con Canal 5).
             channels = [ch for ch in channels if ch.source_url]
-            channels = await asyncio.to_thread(check_channels, channels, settings)
-            report["accesibles"] = sum(1 for ch in channels if ch.probe.accessible)
-
             channels, norm_report = normalize(
                 channels, settings, check_logos=bool(cfg.get("check_logos"))
             )
-            channels = aplicar_respaldos(channels, cfg.get("respaldo"))
             report["normalizacion"] = norm_report
+            channels = aplicar_respaldos(channels, cfg.get("respaldo"))
+
+            channels = await asyncio.to_thread(check_channels, channels, settings)
+            report["accesibles"] = sum(1 for ch in channels if ch.probe.accessible)
+            report["por_respaldo"] = sum(1 for ch in channels if ch.probe.respaldo_idx >= 0)
 
             epg_report, bundle = await asyncio.to_thread(refresh_epg, settings, cfg, channels)
             state.epg_bundle = bundle

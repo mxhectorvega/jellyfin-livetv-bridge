@@ -642,6 +642,64 @@ def test_validar_xmltv_acepta_lo_que_el_dtd_permite():
     }
 
 
+def test_la_sonda_prueba_los_respaldos_si_la_principal_esta_caida(monkeypatch, settings: Settings):
+    """Antes solo miraba la principal: un respaldo vivo no servia de nada.
+
+    Medido el 2026-10-12 con Canal 5: principal 404, canal deshabilitado, y el
+    respaldo nunca llego a ejecutarse porque el rele no arranca para un canal
+    que ya salio del M3U.
+    """
+    from src import probe as probe_mod
+
+    vistas: list[str] = []
+
+    def falso(url, timeout=10.0, mode="liveness", _settings=None):
+        vistas.append(url)
+        if "muerta" in url:
+            return ProbeResult(method=mode, accessible=False, error="HTTP 404 en " + url)
+        return ProbeResult(method=mode, accessible=True, video_codec="h264", detail="ok")
+
+    monkeypatch.setattr(probe_mod, "check_stream", falso)
+    canal = Channel(id="x", name="X", source_url="http://muerta/1.m3u8")
+    canal.backups = ["http://viva/2.m3u8"]
+    resultado = probe_mod.check_channel(canal, settings)
+    assert resultado.accessible is True
+    assert resultado.respaldo_idx == 0, "debe decir que respondio el primer respaldo"
+    assert vistas == ["http://muerta/1.m3u8", "http://viva/2.m3u8"]
+
+
+def test_la_sonda_no_toca_el_respaldo_si_la_principal_responde(monkeypatch, settings: Settings):
+    from src import probe as probe_mod
+
+    vistas: list[str] = []
+
+    def falso(url, timeout=10.0, mode="liveness", _settings=None):
+        vistas.append(url)
+        return ProbeResult(method=mode, accessible=True)
+
+    monkeypatch.setattr(probe_mod, "check_stream", falso)
+    canal = Channel(id="x", name="X", source_url="http://viva/1.m3u8")
+    canal.backups = ["http://otra/2.m3u8"]
+    resultado = probe_mod.check_channel(canal, settings)
+    assert resultado.respaldo_idx == -1
+    assert vistas == ["http://viva/1.m3u8"], "no debe probar el respaldo de gratis"
+
+
+def test_la_sonda_reporta_los_errores_de_todos(monkeypatch, settings: Settings):
+    from src import probe as probe_mod
+
+    def falso(url, timeout=10.0, mode="liveness", _settings=None):
+        return ProbeResult(method=mode, accessible=False, error="HTTP 404 en " + url)
+
+    monkeypatch.setattr(probe_mod, "check_stream", falso)
+    canal = Channel(id="x", name="X", source_url="http://a/1.m3u8")
+    canal.backups = ["http://b/2.m3u8"]
+    resultado = probe_mod.check_channel(canal, settings)
+    assert resultado.accessible is False
+    assert resultado.respaldo_idx == -1
+    assert "[0]" in resultado.error and "[1]" in resultado.error
+
+
 def test_rele_el_empalme_se_encadena():
     """Un tercer salto no vuelve a la linea de tiempo original."""
     r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")

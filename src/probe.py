@@ -384,6 +384,41 @@ def _safe_manifest_flags(url: str, timeout: float) -> dict[str, bool]:
         return {"encrypted": False, "drm": False, "signed_token": False}
 
 
+def check_channel(channel: Channel, settings: Settings) -> ProbeResult:
+    """Valida un canal probando la principal y, si falla, sus RESPALDOS.
+
+    - Discussion: ``check_stream`` mira UNA sola URL. Un canal con el bloque
+      ``respaldo:`` declarado quedaba marcado inaccesible --y el health-check lo
+      deshabilitaba-- aunque tuviera una alterna viva, porque nadie la probaba:
+      los respaldos solo los usaba el rele, y el rele no arranca para un canal
+      que ya salio del M3U. Medido el 2026-10-12 con Canal 5: la principal dio
+      404, el canal se deshabilito, y el respaldo nunca llego a ejecutarse.
+    - Returns: el resultado del PRIMER origen que responde, con
+      ``respaldo_idx`` diciendo cual fue (``-1`` = la principal). Si no responde
+      ninguno, el de la principal con los errores de todos, en orden.
+    """
+    fuentes = [channel.source_url] + [u for u in (channel.backups or []) if u]
+    ultimo: ProbeResult | None = None
+    errores: list[str] = []
+    for idx, url in enumerate(fuentes):
+        resultado = check_stream(url, settings.probe_timeout_s, settings.probe_mode, settings)
+        resultado.respaldo_idx = idx - 1
+        if resultado.accessible:
+            if idx:
+                log.info(
+                    "canal accesible por un respaldo",
+                    extra={"channel": channel.id, "detail": f"indice={idx}"},
+                )
+            return resultado
+        ultimo = resultado
+        errores.append(f"[{idx}] {resultado.error or 'inaccesible'}")
+    if ultimo is None:
+        return ProbeResult(mode=settings.probe_mode, error="canal sin url", checked_at=now_iso())
+    ultimo.respaldo_idx = -1
+    ultimo.error = " | ".join(errores)[:300]
+    return ultimo
+
+
 def check_channels(channels: list[Channel], settings: Settings) -> list[Channel]:
     """Valida en paralelo todos los canales y guarda su ``ProbeResult``.
 
@@ -394,12 +429,7 @@ def check_channels(channels: list[Channel], settings: Settings) -> list[Channel]
     log.info("iniciando validacion", extra={"count": len(channels), "detail": settings.probe_mode})
     workers = max(1, int(settings.probe_workers))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(
-                check_stream, ch.source_url, settings.probe_timeout_s, settings.probe_mode, settings
-            ): ch
-            for ch in channels
-        }
+        futures = {pool.submit(check_channel, ch, settings): ch for ch in channels}
         done = 0
         for future in as_completed(futures):
             ch = futures[future]

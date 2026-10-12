@@ -40,6 +40,9 @@ class ProbeResult:
     drm: bool = False  # licencia declarada (Widevine/PlayReady)
     signed_token: bool = False  # URL con token firmado (jwt/exp/hdnts)
     auth_required: bool = False  # 401/403 o cabeceras exigidas
+    # Indice del respaldo que respondio: -1 = la principal. Lo llena
+    # ``probe.check_channel`` cuando la principal esta caida y hay alternas.
+    respaldo_idx: int = -1
     error: str = ""
     checked_at: str = ""
     detail: str = ""

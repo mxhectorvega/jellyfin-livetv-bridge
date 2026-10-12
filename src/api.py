@@ -172,6 +172,7 @@ def create_app(state: AppState) -> FastAPI:
                     "drm": ch.probe.drm,
                     "token_firmado": ch.probe.signed_token,
                     "auth_requerida": ch.probe.auth_required,
+                    "via_respaldo": ch.probe.respaldo_idx >= 0,
                     "error": ch.probe.error,
                 }
             )

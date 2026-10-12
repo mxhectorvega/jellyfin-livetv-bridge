@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from .config import Settings
 from .models import Channel, ChannelStatus
-from .probe import check_stream
+from .probe import check_channel
 from .util import get_logger, monotonic, now_iso
 
 log = get_logger("health")
@@ -69,13 +69,7 @@ class HealthMonitor:
             status = self.ensure(channel)
             if not force and not self.due(channel, now):
                 continue
-            probe = await asyncio.to_thread(
-                check_stream,
-                channel.source_url,
-                self.settings.probe_timeout_s,
-                self.settings.probe_mode,
-                self.settings,
-            )
+            probe = await asyncio.to_thread(check_channel, channel, self.settings)
             channel.probe = probe
             report.checked += 1
 
