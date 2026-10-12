@@ -127,6 +127,27 @@ class Settings:
     relay_enabled: bool = DEFAULT_RELAY_ENABLED
     relay_user_agent: str = DEFAULT_RELAY_UA
 
+    # IP concreta donde se ESCUCHA (vacio = todas, 0.0.0.0). El .env.example la
+    # documentaba como LVB_BIND_IP desde el principio, pero el codigo nunca la
+    # leia: el servicio escuchaba en 0.0.0.0 aunque el archivo prometiera lo
+    # contrario. Aqui se hace real.
+    bind_ip: str = ""
+    # Token opcional para los endpoints que CAMBIAN estado (POST /catalog,
+    # POST /reload). Vacio = sin autenticacion (comportamiento historico). Los
+    # GET se dejan abiertos a proposito: Jellyfin los consume sin cabeceras.
+    api_token: str = ""
+    # Precalentado del rele: deja el primer byte en ~0.02 s, pero sostiene
+    # ~330 KB/s de bajada continua POR CANAL. Medido: 10 canales = 26 Mbps. Sin
+    # tope, cambiar al catalogo de Pluto abre 198 lectores (~523 Mbps) y satura
+    # el enlace. `relay_precalentar_max` corta la lista; el resto arranca
+    # on-demand cuando alguien lo pide.
+    relay_precalentar: bool = True
+    relay_precalentar_max: int = 16
+    # Un rele que YA tuvo clientes y lleva este tiempo sin ninguno se apaga. Los
+    # que nunca se usaron (precalentado) no entran aqui: ese es el punto del
+    # precalentado.
+    relay_idle_s: float = 900.0
+
     health_interval_s: float = DEFAULT_HEALTH_INTERVAL_S
     health_fails_to_disable: int = DEFAULT_HEALTH_FAILS
     health_oks_to_enable: int = DEFAULT_HEALTH_OKS
@@ -221,6 +242,11 @@ class Settings:
             max_transcodes=_parse(get("max_transcodes", _env_str("LVB_MAX_TRANSCODES", str(DEFAULT_MAX_TRANSCODES))), int, DEFAULT_MAX_TRANSCODES, "max_transcodes"),
             relay_enabled=_parse(get("relay_enabled", _env_str("LVB_RELAY_ENABLED", str(DEFAULT_RELAY_ENABLED))), _to_bool, DEFAULT_RELAY_ENABLED, "relay_enabled"),
             relay_user_agent=str(get("relay_user_agent", _env_str("LVB_RELAY_USER_AGENT", DEFAULT_RELAY_UA))),
+            bind_ip=str(get("bind_ip", _env_str("LVB_BIND_IP", ""))).strip(),
+            api_token=str(get("api_token", _env_str("LVB_API_TOKEN", ""))).strip(),
+            relay_precalentar=_parse(get("relay_precalentar", _env_str("LVB_RELAY_PRECALENTAR", str(True))), _to_bool, True, "relay_precalentar"),
+            relay_precalentar_max=_parse(get("relay_precalentar_max", _env_str("LVB_RELAY_PRECALENTAR_MAX", "16")), int, 16, "relay_precalentar_max"),
+            relay_idle_s=_parse(get("relay_idle_s", _env_str("LVB_RELAY_IDLE_S", "900")), float, 900.0, "relay_idle_s"),
             health_interval_s=_parse(get("health_interval_s", _env_str("LVB_HEALTH_INTERVAL_S", str(DEFAULT_HEALTH_INTERVAL_S))), float, DEFAULT_HEALTH_INTERVAL_S, "health_interval_s"),
             health_fails_to_disable=_parse(get("health_fails_to_disable", _env_str("LVB_HEALTH_FAILS_TO_DISABLE", str(DEFAULT_HEALTH_FAILS))), int, DEFAULT_HEALTH_FAILS, "health_fails_to_disable"),
             health_oks_to_enable=_parse(get("health_oks_to_enable", _env_str("LVB_HEALTH_OKS_TO_ENABLE", str(DEFAULT_HEALTH_OKS))), int, DEFAULT_HEALTH_OKS, "health_oks_to_enable"),

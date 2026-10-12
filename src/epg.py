@@ -36,6 +36,11 @@ WINDOW_FUTURE_DAYS = 7
 # chequeo de traslape los deja pasar (no se puede comparar lo que no se parsea).
 EPOCH_MIN = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
+# ``YYYYMMDDHHMMSS`` seguido de nada, de ``Z`` o de ``+HHMM``/``-HHMM`` (con o
+# sin espacio en medio). El offset se captura en grupos SEPARADOS (signo, horas,
+# minutos) para no volver a depender de posiciones fijas.
+_TIME_RE = re.compile(r"^(\d{14})\s*(?:(Z)|([+-])(\d{2})(\d{2}))?$")
+
 
 @dataclass
 class EpgBundle:
@@ -48,21 +53,32 @@ class EpgBundle:
 
 
 def _parse_time(text: str | None) -> datetime | None:
-    """Parsea un timestamp XMLTV (``YYYYMMDDHHMMSS [+/-HHMM]``)."""
+    """Parsea un timestamp XMLTV (``YYYYMMDDHHMMSS [+/-HHMM]`` / ``...Z``).
+
+    - Discussion: el offset se lee con una regex y NO por posicion fija. La
+      version anterior miraba ``raw[-5]`` y tomaba ``raw[-6:]`` como offset, asi
+      que en ``20260101120000 -0600`` el "offset" salia ``" -0600"`` (con el
+      espacio dentro del grupo) y el resultado era **-01:00** en vez de -06:00;
+      en ``20260101120000+0200`` salia -00:20. Como las fuentes cableadas hoy
+      publican ``+0000`` (que por casualidad salia correcto) el fallo estaba
+      dormido: la primera fuente que publique hora local desfasa la guia horas.
+    - Important: sin marca de zona se asume UTC, que es lo que declara el DTD de
+      XMLTV para el caso sin offset.
+    - Returns: ``datetime`` con zona, o ``None`` si el texto no es parseable.
+    """
     if not text:
         return None
-    raw = text.strip()
+    match = _TIME_RE.match(text.strip())
+    if not match:
+        return None
     try:
-        if raw.endswith("Z") or (len(raw) >= 5 and raw[-5] in "+-"):
-            base = raw[:-6] if raw[-5] in "+-" else raw[:-1]
-            offset = raw[-6:] if raw[-5] in "+-" else "+0000"
-            dt = datetime.strptime(base[:14], "%Y%m%d%H%M%S")
-            sign = 1 if offset[0] == "+" else -1
-            delta = timedelta(hours=int(offset[1:3]), minutes=int(offset[3:5]))
-            return dt.replace(tzinfo=timezone(sign * delta))
-        return datetime.strptime(raw[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        base = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
     except ValueError:
         return None
+    if match.group(3):                       # offset explicito +HHMM / -HHMM
+        delta = timedelta(hours=int(match.group(4)), minutes=int(match.group(5)))
+        return base.replace(tzinfo=timezone(-delta if match.group(3) == "-" else delta))
+    return base.replace(tzinfo=timezone.utc)  # ``Z`` o sin marca: UTC
 
 
 def parse_xmltv(xml_bytes: bytes) -> EpgBundle:

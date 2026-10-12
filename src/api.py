@@ -21,11 +21,12 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 
 from . import __version__
@@ -99,6 +100,26 @@ def resolver_de_canal(channel: Channel, settings: Settings):
     return _resolver
 
 
+def _token_ok(settings: Settings, request: Request) -> bool:
+    """Autoriza un endpoint que CAMBIA estado cuando hay token configurado.
+
+    - Discussion: ``LVB_API_TOKEN`` vacío deja el comportamiento histórico (sin
+      autenticación). Con token, se acepta ``Authorization: Bearer <t>`` o
+      ``?token=<t>``. Se protegen SOLO los POST: los GET (/playlist.m3u,
+      /epg.xml) los consume Jellyfin sin cabeceras y cerrarlos rompería el tuner.
+    - Important: la comparación es ``compare_digest`` (tiempo constante) para no
+      filtrar el token por temporización.
+    """
+    esperado = (settings.api_token or "").strip()
+    if not esperado:
+        return True
+    cabecera = request.headers.get("authorization", "")
+    recibido = cabecera[7:].strip() if cabecera.lower().startswith("bearer ") else ""
+    if not recibido:
+        recibido = request.query_params.get("token", "")
+    return hmac.compare_digest(recibido, esperado)
+
+
 def create_app(state: AppState) -> FastAPI:
     """Fabrica la app FastAPI enlazada a un :class:`AppState`."""
     app = FastAPI(title="jellyfin-livetv-bridge", version=__version__)
@@ -170,13 +191,15 @@ def create_app(state: AppState) -> FastAPI:
         }
 
     @app.post("/catalog/{name}")
-    async def set_catalog(name: str) -> dict[str, Any]:
+    async def set_catalog(name: str, request: Request) -> dict[str, Any]:
         """Cambia el catalogo visible y reescribe M3U + XMLTV al vuelo.
 
         - Discussion: no re-ingesta ni re-valida: usa el estado en memoria. En
           Jellyfin hay que disparar despues "Actualizar canales" y
           "Refresh Guide" para que la parrilla tome el cambio.
         """
+        if not _token_ok(state.settings, request):
+            raise HTTPException(status_code=401, detail="token requerido")
         target = urllib.parse.unquote(name).strip().lower()
         channels = state.channel_list()
         counts = catalogs_of(channels)
@@ -207,7 +230,9 @@ def create_app(state: AppState) -> FastAPI:
         return FileResponse(path, media_type="application/xml", filename="epg.xml")
 
     @app.post("/reload")
-    async def reload_pipeline() -> dict[str, Any]:
+    async def reload_pipeline(request: Request) -> dict[str, Any]:
+        if not _token_ok(state.settings, request):
+            raise HTTPException(status_code=401, detail="token requerido")
         if state.pipeline_running:
             return {"status": "en_curso"}
         runner = state.cfg.get("_run_pipeline")
@@ -298,6 +323,7 @@ def create_app(state: AppState) -> FastAPI:
                 "stream abierto",
                 extra={"channel": channel.name, "detail": plan.reason or "copy"},
             )
+            tarea_err = asyncio.create_task(_drenar_stderr(proc, channel.name))
             try:
                 assert proc.stdout is not None
                 while True:
@@ -309,8 +335,34 @@ def create_app(state: AppState) -> FastAPI:
                 if proc.returncode is None:
                     proc.kill()
                 await proc.wait()
+                # El drenado tiene que terminar para poder registrar su cola.
+                await asyncio.gather(tarea_err, return_exceptions=True)
                 log.info("stream cerrado", extra={"channel": channel.name, "code": proc.returncode})
 
         return StreamingResponse(generator(), media_type="video/mp2t")
 
     return app
+
+
+async def _drenar_stderr(proc: Any, nombre: str) -> None:
+    """Consume el stderr de ffmpeg para que no se le llene la tubería.
+
+    - Discussion: ffmpeg escribe al stderr. Si nadie lo lee y la fuente es
+      ruidosa, el buffer de la tubería (64 KB) se llena, **ffmpeg se bloquea
+      escribiendo** y el flujo se congela sin error visible en el cliente. Con
+      ``-loglevel error`` es raro, pero un origen que escupe avisos lo alcanza.
+    - Note: se conserva solo la cola, que es lo que se registra al cerrar.
+    """
+    cola = b""
+    if proc.stderr is None:
+        return
+    while True:
+        trozo = await proc.stderr.read(4096)
+        if not trozo:
+            break
+        cola = (cola + trozo)[-512:]
+    if cola:
+        log.warning(
+            "ffmpeg stderr",
+            extra={"channel": nombre, "detail": cola.decode("utf-8", "replace").strip()[:300]},
+        )

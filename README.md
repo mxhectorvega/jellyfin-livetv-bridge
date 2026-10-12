@@ -6,13 +6,14 @@ de un LXC de Proxmox; ffmpeg/ffprobe se invocan por `subprocess`.
 
 ```
 sources.yml --> INGESTA --> VALIDACION --> NORMALIZACION --> EPG
-                                    |
-                                    v
-                         playlist.m3u + epg.xml  -->  Jellyfin
-                                    |
-                         API HTTP (FastAPI) /stream/<id>  (copy por defecto)
-                                    |
-                         health-check -> desactiva/reactiva canales
+                                   |
+                                   v
+                        playlist.m3u + epg.xml  -->  Jellyfin
+                                   |
+                        API HTTP (FastAPI) /relay/<id>   (rele con colchon)
+                                           /stream/<id>  (proxy ffmpeg, copy)
+                                   |
+                        health-check -> desactiva/reactiva canales
 ```
 
 ## Que resuelve y que NO
@@ -38,10 +39,13 @@ src/
   playlist.py   etapa 5  /data/playlist.m3u + catalogo visible
   transcode.py  etapa 6  copy por defecto; VAAPI/QSV con fallback a CPU
   health.py     etapa 7  health-check con backoff y activacion
-  api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml /stream/<id>
+  relay.py      extra    /relay/<id>: rele HLS con colchon propio y failover
+  api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml /relay/<id> /stream/<id>
   main.py       etapa 9  orquestador
 config/sources.example.yml    plantilla (datos FICTICIOS)
 tests/                        pytest: ingesta, validacion, normalizacion, M3U, XMLTV
+tests/e2e_sintetico.py        banco E2E: origen real con ffmpeg, relé y AES-128
+.github/workflows/tests.yml   CI: pytest en Python 3.12 y 3.13
 ```
 
 ## Arranque rapido (Docker)
@@ -72,7 +76,14 @@ Rutas absolutas en todo: `/config` (entrada) y `/data` (salida).
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
+
+# Banco E2E: genera un HLS real con ffmpeg, lo sirve por HTTP y pasa la cadena
+# completa (ingesta -> relé -> failover -> AES-128). Necesita ffmpeg y openssl.
+.venv/bin/python tests/e2e_sintetico.py
 ```
+
+La suite de pytest **no toca la red** (todo mockeado): prueba logica. El banco
+E2E es lo que prueba el arranque de verdad.
 
 ## Fuente de TV Azteca integrada
 
@@ -191,6 +202,53 @@ curl -s -X POST http://10.0.0.21:8581/reload
 
 y re-dispara "Actualizar canales" + "Refresh Guide" en Jellyfin.
 
+## Rele HLS con colchon (`/relay/<id>`)
+
+`/stream/<id>` es un proxy: lanza `ffmpeg -c copy` contra el origen y entrega lo
+que salga. No tiene memoria, asi que el hueco del origen llega tal cual a la
+pantalla y, si el proveedor rota el playlist variante (medido en un panel
+Xtream: nombre nuevo en cada lectura del master, el viejo da 404), ffmpeg muere
+y Jellyfin lo lee como fin de canal.
+
+`/relay/<id>` es un rele: un hilo lee el HLS por su cuenta y mantiene un colchon
+de segmentos en memoria; el cliente se sirve de ahi. No usa ffmpeg (los
+segmentos ya son MPEG-TS y se concatenan tal cual).
+
+```
+GET /relay/<id>      flujo continuo (video/mp2t)
+GET /relay/status    por canal: frente, en_buffer, refrescos_master, vistos, error
+LVB_RELAY_ENABLED    true: el M3U publica /relay/<id>
+```
+
+Que hace y que no:
+
+- **Re-resuelve el master solo** cuando la variante muere (404/403/410) o cuando
+  el token de TV Azteca caduca (401), en cada caso pidiendo token NUEVO.
+- **Descifra AES-128** con `openssl`: el rele copia bytes, asi que sin descifrar
+  entregaria texto cifrado. Respeta el IV explicito por segmento.
+- **Salta a la fuente alterna** declarada en el bloque `respaldo:` de
+  `sources.yml` (con el colchon vacio al primer fallo; con colchon lleno, a los
+  tres seguidos).
+- **No cose el corte** de un `EXT-X-DISCONTINUITY` que cambia de host: eso
+  exigiria reescribir PTS/PCR paquete por paquete.
+- **Consume ancho de banda aunque nadie vea.** El precalentado deja el primer
+  byte en ~0.02 s (el sondeo de Jellyfin espera 3 s), pero sostiene ~330 KB/s de
+  bajada POR CANAL: 10 canales son ~26 Mbps continuos. Por eso hay tope
+  (`LVB_RELAY_PRECALENTAR_MAX`) y los reles que ya no se publican o que llevan
+  rato sin clientes se apagan solos.
+
+## Seguridad
+
+- `LVB_BIND_IP` publica el puerto en UNA interfaz (por ejemplo la IP de LAN);
+  vacio = `0.0.0.0`. El `docker-compose.yml` usa `network_mode: host`, asi que
+  sin esto el servicio escucha en todas las interfaces del host.
+- `LVB_API_TOKEN` protege los endpoints que **cambian estado** (`POST /catalog`,
+  `POST /reload`). Vacio = sin autenticacion. Los `GET` quedan abiertos a
+  proposito: Jellyfin los consume sin mandar cabeceras.
+- Los secretos (`.env`, `config/sources.yml`) estan en `.gitignore`. Las copias
+  manuales de respaldo (`.bak`) tambien, porque suelen traer URLs de streams
+  reales.
+
 ## Configuracion
 
 Todo en `.env` (ver `.env.example`) y en el bloque `settings:` de
@@ -198,10 +256,15 @@ Todo en `.env` (ver `.env.example`) y en el bloque `settings:` de
 
 ```
 LVB_PUBLIC_BASE            URL base que se escribe en el M3U (alcanzable por Jellyfin)
+LVB_BIND_IP                interfaz donde se escucha (vacio = 0.0.0.0)
+LVB_API_TOKEN              token de los POST (vacio = sin auth)
 LVB_PROBE_MODE             liveness (recomendado) | ffprobe
 LVB_INCLUDE_PROTECTED      incluir cifrados/DRM marcados (true por defecto)
 LVB_HWACCEL                auto | vaapi | qsv | cpu | off
 LVB_MAX_TRANSCODES         limite de recodificaciones simultaneas sin GPU
+LVB_RELAY_ENABLED          publicar /relay/<id> en vez de /stream/<id>
+LVB_RELAY_PRECALENTAR_MAX  canales precalentados a la vez (cada uno ~330 KB/s)
+LVB_RELAY_IDLE_S           segundos sin clientes para apagar un rele ya usado
 LVB_HEALTH_INTERVAL_S      intervalo del health-check
 LVB_HEALTH_FAILS_TO_DISABLE  fallos consecutivos antes de desactivar
 ```
@@ -231,8 +294,9 @@ Un valor invalido **avisa y usa el de fabrica**; nunca impide el arranque.
 - **Splicing de anuncios / `EXT-X-DISCONTINUITY`:** si el origen cambia de
   host a media emision, ffmpeg termina el flujo y Jellyfin lo lee como "el
   canal se acabo" (log: `Cannot reuse HTTP connection for different host`).
-  Este servicio reconecta en la peticion siguiente, pero **no cose el corte
-  dentro de la misma sesion**; para eso hace falta un bucle de buffer propio.
+  `/relay/<id>` **absorbe el hueco** mientras el origen siga publicando
+  segmentos, pero no reescribe PTS/PCR: un cambio de host se sigue notando como
+  un tiron en el reproductor.
 - **DRM/CENC:** no se reproduce. Detectado y marcado.
 - **Sin GPU:** VAAPI/QSV solo si el host expone `/dev/dri` con driver i965
   funcional. En Intel HD 4000 el encode VAAPI es limitado; el plan cae a CPU.

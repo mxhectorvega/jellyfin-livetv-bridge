@@ -21,6 +21,20 @@ from .util import get_logger, write_atomic
 log = get_logger("playlist")
 
 
+def m3u_attr(valor: str) -> str:
+    """Sanea un valor para un atributo ``clave="valor"`` del M3U.
+
+    - Discussion: los nombres, logos y grupos vienen de listas de TERCEROS
+      (Pluto y compania). Una comilla doble o un salto de linea en un
+      ``tvg-name`` rompe el archivo entero; un salto de linea, ademas, permite
+      inyectar una entrada falsa con su propia URL, porque el M3U es un formato
+      de una linea por campo.
+    - Important: la comilla se degrada a apostrofo y los espacios (incluidos los
+      saltos) se colapsan. No se recorta el contenido util.
+    """
+    return " ".join(str(valor or "").replace('"', "'").split())
+
+
 def channel_url(channel: Channel, settings: Settings, use_proxy: bool = True, use_relay: bool = False) -> str:
     """URL que se publica para un canal.
 
@@ -54,8 +68,10 @@ def build_m3u(channels: list[Channel], settings: Settings, use_proxy: bool = Tru
         if not ch.enabled:
             continue
         lines.append(
-            f'#EXTINF:-1 tvg-id="{ch.tvg_id}" tvg-name="{ch.tvg_name or ch.name}" '
-            f'tvg-logo="{ch.logo}" group-title="{ch.group}",{ch.name}'
+            f'#EXTINF:-1 tvg-id="{m3u_attr(ch.tvg_id)}" '
+            f'tvg-name="{m3u_attr(ch.tvg_name or ch.name)}" '
+            f'tvg-logo="{m3u_attr(ch.logo)}" '
+            f'group-title="{m3u_attr(ch.group)}",{m3u_attr(ch.name)}'
         )
         lines.append(channel_url(ch, settings, use_proxy=use_proxy, use_relay=use_relay))
         emitted += 1
@@ -109,13 +125,6 @@ def write_playlist(channels: list[Channel], settings: Settings, use_proxy: bool 
     text = build_m3u(selected, settings, use_proxy=use_proxy, use_relay=use_relay)
     write_atomic(settings.playlist_file, text)
     return sum(1 for line in text.splitlines() if line.startswith("#EXTINF"))
-
-
-def write_outputs(channels: list[Channel], settings: Settings, use_proxy: bool = True) -> dict[str, int]:
-    """Escribe los dos artefactos de salida que consume Jellyfin."""
-    count = write_playlist(channels, settings, use_proxy=use_proxy)
-    with_guide = sum(1 for ch in channels if ch.epg_id)
-    return {"canales": count, "con_guia": with_guide}
 
 
 def write_active_outputs(channels: list[Channel], bundle, settings: Settings) -> dict[str, object]:

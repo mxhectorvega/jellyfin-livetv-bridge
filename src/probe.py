@@ -234,8 +234,11 @@ def _reintentable(error: str) -> bool:
     text = (error or "").lower()
     if not text:
         return False
-    if "http 4" in text and "http 401" not in text and "http 403" not in text:
-        return False        # 404/416: ruta, no carga
+    # 404/416 son de RUTA y 401/403 de PERMISO: reintentar la misma URL no los
+    # arregla. 408 y 429 son de CARGA y si valen la pena, asi que se exceptuan
+    # antes del atajo por prefijo "http 4".
+    if "http 4" in text and not any(m in text for m in ("http 408", "http 429")):
+        return False
     return any(
         marca in text
         for marca in (
@@ -244,6 +247,7 @@ def _reintentable(error: str) -> bool:
             "anidamiento mayor",
             "timeout",
             "http 5",
+            "http 408",
             "http 429",
             "temporal",
         )

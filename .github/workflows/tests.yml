@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    # La imagen de produccion es python:3.12-slim. Probar tambien 3.13 evita el
+    # punto ciego de correr la suite en un interprete distinto al que sirve.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest -q
+
+  e2e:
+    # El banco sintetico genera un HLS real: necesita ffmpeg (y openssl, que ya
+    # viene en el runner). Es el unico que prueba el arranque, no solo la logica.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Banco E2E
+        run: python tests/e2e_sintetico.py

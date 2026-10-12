@@ -19,13 +19,14 @@ memoria, indexado por un contador PROPIO (no por el `EXT-X-MEDIA-SEQUENCE` del
 origen, que retrocede al cambiar de variante). El cliente se sirve de ese
 colchón, siempre a `COLCHON_SEGMENTOS` de distancia del frente de escritura:
 
-- **no puede adelantarse** — no hay datos más allá del frente;
-- **no puede atrasarse** — se le deja de servir cuando el colchón baja.
+- **no puede adelantarse al frente** — no hay datos más allá de lo ya leído;
+- **el ritmo lo pone el consumidor**, no el relé: no se estima ningún caudal
+  objetivo, así que no puede frenar al cliente por perseguir un valor
+  inalcanzable (el fallo que costó la pausa al minuto en el despachador viejo).
+  La contrapresión del socket mantiene al lector por delante.
 
-No se estima ningún ritmo, así que no puede frenar al cliente por perseguir un
-objetivo inalcanzable (el fallo que costó la pausa al minuto en el despachador
-viejo). Y **no se usa ffmpeg**: los segmentos ya son MPEG-TS y se concatenan
-tal cual, así que no hay re-timestamping, ni reinicio de PTS en cero, ni
+Y **no se usa ffmpeg**: los segmentos ya son MPEG-TS y se concatenan tal cual,
+así que no hay re-timestamping, ni reinicio de PTS en cero, ni
 `-output_ts_offset` que hunda el caudal.
 """
 
@@ -58,6 +59,14 @@ MAX_BYTES = 32 * 1024 * 1024   # tope de la ventana por canal
 ARRANQUE_MAX_S = 3.0           # el primer byte tiene que salir antes que el sondeo de Jellyfin
 CLIENTE_OLVIDO_S = 60.0        # un cliente que no avanza tanto tiempo se da por muerto
 FALLOS_PARA_CAMBIAR = 3        # fallos consecutivos antes de saltar a la fuente alterna
+# Memoria de "ya bajado": basta recordar la ventana viva. Era un `set` sin tope
+# que crecia toda la vida del proceso (~30k URLs/dia en fuentes que rotan el
+# nombre de la variante: medido en Canal 5, 2,486 en 2 h -> ~2.75 GB/año).
+MAX_VISTOS = 512
+MAX_CLAVES = 64                # llaves AES en cache (URI -> hex), tambien LRU
+# Tope de espera entre vueltas del lector cuando la fuente no responde: sin el,
+# un origen muerto con UNA sola fuente se reintentaba cada ~0.5 s para siempre.
+REINTENTO_MAX_ESPERA_S = 30.0
 
 
 @dataclass
@@ -121,12 +130,15 @@ class RelayHLS:
 
         self._lock = threading.RLock()   # _podar() se llama con el lock tomado
         self._buf: "OrderedDict[int, Segmento]" = OrderedDict()
-        self._vistos: set[str] = set()
+        # LRU acotado, no un set sin tope: ver MAX_VISTOS.
+        self._vistos: "OrderedDict[str, None]" = OrderedDict()
         self._clientes: dict[int, tuple[int, float]] = {}   # id -> (idx, ultimo avance)
+        self._tuvo_clientes = False     # distingue precalentado de "quedo ocioso"
+        self._ultimo_cliente = time.monotonic()
 
         self._variante = ""          # "" = aun hay que resolver el master
         self._usar_master = True     # el source_url es un master
-        self._claves: dict[str, str] = {}   # URI de llave AES -> hex
+        self._claves: "OrderedDict[str, str]" = OrderedDict()   # URI de llave AES -> hex
         self._cifrados = 0           # segmentos descifrados (AES-128)
         self._refrescar_token = False   # el proximo resolver debe pedir token NUEVO
         self._frente = 0             # cuantos segmentos se han encolado
@@ -134,6 +146,7 @@ class RelayHLS:
         self._error = ""
         self._refrescos = 0          # veces que hubo que re-resolver el master
         self._descargas = 0
+        self._espera_s = SONDEO_S    # espera entre vueltas del lector (backoff)
         self._stop = threading.Event()
         self._hilo: threading.Thread | None = None
         self._siguiente_cliente = 0
@@ -255,15 +268,18 @@ class RelayHLS:
 
         - Discussion: el umbral depende de si ya hay datos. Con el colchón
           VACÍO (esta fuente nunca entregó nada) se salta al PRIMER fallo: no
-          hay nada que perder y esperar tres intentos deja al cliente sin
-          primer byte dentro de la ventana de sondeo de Jellyfin (medido: 26 s
-          de arranque con la principal muerta). Con el colchón lleno, en
-          cambio, se pide ``FALLOS_PARA_CAMBIAR`` seguidos: un tropiezo suelto
-          no justifica cambiar de fuente en mitad de una reproducción.
+          hay nada que perder y esperar deja al cliente sin primer byte dentro
+          de la ventana de sondeo de Jellyfin. Con el colchón lleno se piden
+          ``FALLOS_PARA_CAMBIAR`` seguidos: un tropiezo suelto no justifica
+          cambiar de fuente en mitad de una reproducción.
+        - Important: el contador de ESTA llamada entra en la cuenta. La version
+          anterior comparaba ``self._fallos >= umbral`` antes de incrementar, asi
+          que en la practica cambiaba al SEGUNDO fallo (doc: primero) y al
+          CUARTO con colchon lleno (doc: tres). Medido con la simulacion.
         """
         with self._lock:
             umbral = 1 if not self._buf else FALLOS_PARA_CAMBIAR
-            if self._fallos >= umbral and len(self.fuentes) > 1:
+            if self._fallos + 1 >= umbral and len(self.fuentes) > 1:
                 self._indice = (self._indice + 1) % len(self.fuentes)
                 self._variante = ""
                 self._vistos.clear()
@@ -291,6 +307,29 @@ class RelayHLS:
             actual = elegida
         raise RuntimeError("anidamiento de master mayor a 3")
 
+    def _recordar_visto(self, url: str) -> None:
+        """Marca un segmento como ya bajado, con memoria ACOTADA (LRU).
+
+        - Discussion: ``_vistos`` era un ``set`` que solo se vaciaba al cambiar
+          de fuente, asi que crecia durante toda la vida del proceso en fuentes
+          que rotan el nombre del playlist variante (medido en Canal 5: 2,486
+          URLs en 2 h, ~30k/dia -> ~2.75 GB/año de RSS). Con la ventana viva
+          alcanza: lo unico que hay que evitar es rebajar un segmento que aun
+          esta en el colchon.
+        - Important: se llama con el lock del lector tomado.
+        """
+        self._vistos[url] = None
+        self._vistos.move_to_end(url)
+        while len(self._vistos) > MAX_VISTOS:
+            self._vistos.popitem(last=False)
+
+    def _recordar_clave(self, uri: str, clave_hex: str) -> None:
+        """Cachea una llave AES por URI con tope (LRU), no para siempre."""
+        self._claves[uri] = clave_hex
+        self._claves.move_to_end(uri)
+        while len(self._claves) > MAX_CLAVES:
+            self._claves.popitem(last=False)
+
     def _bucle(self) -> None:
         """Hilo lector: mantiene el colchón lleno."""
         while not self._stop.is_set():
@@ -313,7 +352,7 @@ class RelayHLS:
                     if datos is None:
                         continue
                     with self._lock:
-                        self._vistos.add(ref.url)
+                        self._recordar_visto(ref.url)
                         self._frente += 1
                         self._buf[self._frente] = Segmento(self._frente, ref.url, datos, ref.dur)
                         self._descargas += 1
@@ -339,7 +378,14 @@ class RelayHLS:
             except Exception as exc:  # noqa: BLE001 — el lector nunca muere
                 self._error = str(exc)[:200]
                 self._contar_fallo()
-            self._stop.wait(SONDEO_S)
+            # Espera entre vueltas. Normal: SONDEO_S. Si la fuente viene
+            # fallando, crece hasta REINTENTO_MAX_ESPERA_S: un origen muerto con
+            # una sola fuente golpeaba el CDN cada ~0.5 s para siempre.
+            self._espera_s = (
+                SONDEO_S if self._fallos == 0
+                else min(REINTENTO_MAX_ESPERA_S, SONDEO_S * (2 ** min(self._fallos, 6)))
+            )
+            self._stop.wait(self._espera_s)
 
     def _clave(self, uri: str) -> str:
         """Llave AES-128 en hex, cacheada por URI (no cambia entre segmentos)."""
@@ -352,7 +398,7 @@ class RelayHLS:
             raise RuntimeError(f"llave AES de {len(cruda)} bytes (se esperaban 16)")
         clave = cruda[:16].hex()
         with self._lock:
-            self._claves[uri] = clave
+            self._recordar_clave(uri, clave)
         return clave
 
     def _descifrar(self, datos: bytes, key_uri: str, iv: str, seq: int) -> bytes:
@@ -459,11 +505,26 @@ class RelayHLS:
                 "fuentes": len(self.fuentes),
                 "cambios_fuente": self._cambios,
                 "descifrados_aes": self._cifrados,
+                "vistos": len(self._vistos),
+                "claves": len(self._claves),
+                "tuvo_clientes": self._tuvo_clientes,
+                "espera_s": round(self._espera_s, 2),
             }
 
     # ---------------------------------------------------------------- cliente
     def servir(self, espera_max_s: float = ARRANQUE_MAX_S) -> Iterator[bytes]:
-        """Genera el flujo continuo para UN cliente."""
+        """Genera el flujo continuo para UN cliente.
+
+        - Discussion: se arranca con lo que haya, no con el colchon lleno: el
+          primer byte tiene que salir dentro de la ventana de sondeo de Jellyfin
+          (3 s) o el probe se rinde.
+        - Important: el rele NO dosifica al cliente. La unica cota es lo que ya
+          se leyo (``_frente``): si el cliente corre mas que el lector, se queda
+          esperando datos. El colchon se mantiene porque el reproductor real
+          consume a 1x y el lector va por delante. La version anterior calculaba
+          un ``tope`` UNA vez y nunca lo actualizaba, asi que no controlaba
+          nada: era el comentario el que prometia un control que no existia.
+        """
         # El primer byte tiene que salir dentro de la ventana de sondeo de
         # Jellyfin (3 s): se arranca con lo que haya, no con el colchon lleno.
         limite = time.time() + espera_max_s
@@ -481,34 +542,47 @@ class RelayHLS:
             else:
                 idx = self._frente + 1
             self._clientes[cid] = (idx, time.monotonic())
-            colchon_inicial = max(1, self._frente - idx)
+            self._tuvo_clientes = True
         log.info("relay: cliente enganchado", extra={"detail": f"idx={idx} frente={self._frente}"})
 
         try:
             while not self._stop.is_set():
                 with self._lock:
-                    frente = self._frente
-                    primero = self._primero
-                    tope = frente - colchon_inicial      # el cliente no se acerca mas
                     seg = self._buf.get(idx)
-                    if idx < primero:
-                        idx = primero                    # se quedo atras: se salta
+                    if idx < self._primero:              # se quedo atras: se salta
+                        idx = self._primero
                         self._clientes[cid] = (idx, time.monotonic())
                         seg = self._buf.get(idx)
                     if seg is not None:
                         self._clientes[cid] = (idx + 1, time.monotonic())
                         idx += 1
                 if seg is None:
-                    if idx > tope:
-                        time.sleep(0.05)                 # colchon lleno: esperar
-                        continue
-                    time.sleep(0.1)                      # aun no hay datos: esperar
+                    time.sleep(0.05)                     # aun no hay datos en idx
                     continue
                 yield seg.datos
         finally:
             with self._lock:
                 self._clientes.pop(cid, None)
+                self._ultimo_cliente = time.monotonic()
             log.info("relay: cliente desenganchado", extra={"detail": f"idx={idx}"})
+
+    # ------------------------------------------------------------ introspeccion
+    @property
+    def clientes(self) -> int:
+        """Clientes enganchados ahora mismo (para el barrido del pool)."""
+        with self._lock:
+            return len(self._clientes)
+
+    @property
+    def ultimo_cliente(self) -> float:
+        """Instante (monotonico) en que se desengacho el ultimo cliente."""
+        with self._lock:
+            return self._ultimo_cliente
+
+    @property
+    def tuvo_clientes(self) -> bool:
+        """True si alguna vez sirvio a alguien (lo distingue del precalentado)."""
+        return self._tuvo_clientes
 
 
 class RelayPool:
@@ -544,8 +618,44 @@ class RelayPool:
         with self._lock:
             return {k: r.stats() for k, r in self._relays.items()}
 
+    def barrer(self, vigentes: set[str], idle_s: float = 900.0) -> list[str]:
+        """Apaga los relés que ya no sirven a nadie.
+
+        - Discussion: un relé sostiene ~330 KB/s de bajada CONTINUA, tenga o no
+          clientes. ``detener_todos`` existía pero nadie la llamaba, así que
+          cambiar de catálogo dejaba vivos los del anterior para siempre (medido:
+          10 relés, 0 clientes, 26 Mbps, horas encendidos).
+        - Note: se apaga (a) el canal que ya no está en el catálogo publicado y
+          (b) el que YA tuvo clientes y lleva ``idle_s`` sin ninguno. Los relés
+          recién precalentados no entran en (b): ese es justo el punto del
+          precalentado, y matarlos devolvería el arranque lento.
+        - Returns: ids de los relés apagados.
+        """
+        ahora = time.monotonic()
+        apagar: list[RelayHLS] = []
+        apagados: list[str] = []
+        with self._lock:
+            for clave, relay in list(self._relays.items()):
+                ocioso = (
+                    relay.tuvo_clientes
+                    and relay.clientes == 0
+                    and ahora - relay.ultimo_cliente > idle_s
+                )
+                if clave not in vigentes or ocioso:
+                    apagar.append(relay)
+                    apagados.append(clave)
+                    del self._relays[clave]
+        # Fuera del lock: detener() hace join del hilo (hasta 5 s) y no hay
+        # razon para bloquear un get() mientras tanto.
+        for relay in apagar:
+            relay.detener()
+        if apagados:
+            log.info("relay: reles apagados", extra={"detail": f"{len(apagados)}: {apagados[:5]}"})
+        return apagados
+
     def detener_todos(self) -> None:
         with self._lock:
-            for relay in self._relays.values():
-                relay.detener()
+            relays = list(self._relays.values())
             self._relays.clear()
+        for relay in relays:
+            relay.detener()

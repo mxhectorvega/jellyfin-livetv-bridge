@@ -84,20 +84,37 @@ async def run_pipeline(state: AppState) -> dict[str, Any]:
             # El rele tarda ~3.5 s en llenar su primer segmento y el sondeo de
             # Jellyfin solo espera 3 s: se precalientan los canales publicados
             # para que al pedir /relay/<id> el colchon ya este lleno.
-            if channels and settings.relay_enabled:
+            # TOPE: cada rele sostiene ~330 KB/s de bajada continua; sin tope,
+            # cambiar al catalogo de Pluto (198 canales) abre 198 lectores y
+            # satura el enlace. El resto arranca on-demand.
+            if channels and settings.relay_enabled and settings.relay_precalentar:
                 try:
                     publicados = select_for_output(channels, settings)
-                    for ch in publicados:
+                    objetivo = publicados[: max(0, settings.relay_precalentar_max)]
+                    for ch in objetivo:
                         state.relay_pool.get(
                             ch.id,
                             fuentes_de_canal(ch),
                             settings.relay_user_agent,
                             resolver=resolver_de_canal(ch, settings),
                         )
-                    report["reles_precalentados"] = len(publicados)
-                    report["reles_con_respaldo"] = sum(1 for ch in publicados if ch.backups)
+                    report["reles_precalentados"] = len(objetivo)
+                    report["reles_omitidos"] = max(0, len(publicados) - len(objetivo))
+                    report["reles_con_respaldo"] = sum(1 for ch in objetivo if ch.backups)
                 except Exception as exc:  # noqa: BLE001 — no tumbar la corrida
                     log.warning("no se pudieron precalentar los reles", extra={"detail": str(exc)[:200]})
+
+            # Suelta los reles que ya no sirven al catalogo publicado (o que
+            # llevan rato sin clientes). Sin esto, cambiar de catalogo dejaba los
+            # del anterior bajando para siempre.
+            if settings.relay_enabled:
+                try:
+                    vigentes = {ch.id for ch in select_for_output(channels, settings)}
+                    apagados = state.relay_pool.barrer(vigentes, settings.relay_idle_s)
+                    if apagados:
+                        report["reles_apagados"] = len(apagados)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("barrido de reles fallido", extra={"detail": str(exc)[:200]})
 
             persist_state(state)
         except Exception as exc:  # noqa: BLE001 — el pipeline no debe tumbar el servicio
@@ -144,15 +161,36 @@ async def pipeline_forever(state: AppState, interval_s: float) -> None:
         await asyncio.sleep(max(300.0, interval_s))
 
 
+async def barrer_forever(state: AppState, interval_s: float = 300.0) -> None:
+    """Apaga relés ociosos sin esperar a la próxima corrida del pipeline.
+
+    - Discussion: el pipeline corre cada 12 h, así que un canal que el
+      health-check desactiva seguiría con su relé bajando durante horas. Este
+      barrido corre al ritmo del health-check (300 s) y aplica la misma regla.
+    """
+    while True:
+        await asyncio.sleep(max(60.0, interval_s))
+        try:
+            settings = state.settings
+            vigentes = {ch.id for ch in select_for_output(state.channel_list(), settings)}
+            state.relay_pool.barrer(vigentes, settings.relay_idle_s)
+        except Exception as exc:  # noqa: BLE001 — el barrido nunca tumba nada
+            log.warning("barrido de reles fallido", extra={"detail": str(exc)[:200]})
+
+
 async def _serve(state: AppState) -> None:
     app = create_app(state)
+    # bind_ip manda sobre host: LVB_BIND_IP=10.0.0.21 publica SOLO en la LAN.
+    # Vacio => LVB_HOST (0.0.0.0 por omision).
+    host = state.settings.bind_ip or state.settings.host
     config = uvicorn.Config(
         app,
-        host=state.settings.host,
+        host=host,
         port=state.settings.port,
         log_level=state.settings.log_level.lower(),
         access_log=False,
     )
+    log.info("api escuchando", extra={"detail": f"{host}:{state.settings.port}"})
     server = uvicorn.Server(config)
     await server.serve()
 
@@ -192,6 +230,7 @@ async def main_async() -> None:
     tasks = [
         asyncio.create_task(pipeline_forever(state, interval_s)),
         asyncio.create_task(state.monitor.run_forever(state.channel_list)),
+        asyncio.create_task(barrer_forever(state, state.settings.health_interval_s)),
         asyncio.create_task(_serve(state)),
     ]
 
@@ -212,6 +251,9 @@ async def main_async() -> None:
     for task in tasks:
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
+    # Los hilos del rele son daemon, pero cerrarlos aqui apaga la bajada de cada
+    # canal en el apagado ordenado (y deja el log limpio).
+    state.relay_pool.detener_todos()
 
 
 def main() -> None:

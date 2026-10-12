@@ -45,6 +45,6 @@ USER ${LVB_UID}:${LVB_GID}
 EXPOSE 8581
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8581/health', timeout=8).status==200 else 1)"
+  CMD python -c "import os,sys,urllib.request; h=os.environ.get('LVB_BIND_IP') or '127.0.0.1'; sys.exit(0 if urllib.request.urlopen('http://%s:%s/health'%(h,os.environ.get('LVB_PORT','8581')), timeout=8).status==200 else 1)"
 
 ENTRYPOINT ["python", "-m", "src.main"]
