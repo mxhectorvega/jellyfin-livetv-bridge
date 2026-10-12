@@ -66,9 +66,9 @@ docker compose up -d --build
 docker compose logs -f livetv-bridge
 
 # 3. Verifica
-curl -s http://10.0.0.21:8581/health
-curl -s http://10.0.0.21:8581/playlist.m3u | head
-curl -s http://10.0.0.21:8581/status | python3 -m json.tool | head -40
+curl -s http://TU_IP_LAN:8581/health
+curl -s http://TU_IP_LAN:8581/playlist.m3u | head
+curl -s http://TU_IP_LAN:8581/status | python3 -m json.tool | head -40
 ```
 
 Rutas absolutas en todo: `/config` (entrada) y `/data` (salida).
@@ -122,7 +122,7 @@ Cada fuente (o canal suelto) lleva su `catalog:` en `sources.yml`:
 ```yaml
 sources:
   - name: "Nacionales"
-    url: "/hostserver/catalogo_nacionales.m3u"
+    url: "/ruta/a/mi/catalogo.m3u"
     catalog: "nacionales"
   - name: "Pluto"
     url: "https://.../pluto_mx.m3u"
@@ -146,7 +146,7 @@ catalogo hay que disparar `Actualizar canales` y `Refresh Guide`.
 ## Conectar a Jellyfin Live TV (paso a paso)
 
 **0. Requisito previo.** Jellyfin debe poder alcanzar
-`LVB_PUBLIC_BASE` (por ejemplo `http://10.0.0.21:8581`) por la LAN.
+`LVB_PUBLIC_BASE` (por ejemplo `http://TU_IP_LAN:8581`) por la LAN.
 
 **1. Crear el tuner (tipo `m3u`, NO `hdhomerun`).**
 
@@ -154,7 +154,7 @@ catalogo hay que disparar `Actualizar canales` y `Refresh Guide`.
 POST /LiveTv/TunerHosts          (header X-Emby-Token: <API_KEY>)
 {
   "Type": "m3u",
-  "Url": "http://10.0.0.21:8581/playlist.m3u",
+  "Url": "http://TU_IP_LAN:8581/playlist.m3u",
   "FriendlyName": "LiveTV Bridge",
   "TunerCount": 4,
   "AllowHWTranscoding": false,
@@ -172,7 +172,7 @@ vive dentro de `GET /System/Configuration/livetv` en `TunerHosts`.
 POST /LiveTv/ListingProviders
 {
   "Type": "xmltv",
-  "Path": "http://10.0.0.21:8581/epg.xml",
+  "Path": "http://TU_IP_LAN:8581/epg.xml",
   "FriendlyName": "LiveTV Bridge EPG",
   "EnableAllTuners": true,
   "EnableAllUsers": true
@@ -200,7 +200,7 @@ GET /Videos/<channelId>/stream.ts       -> el TS (mide bytes)
 **5. Cambiar de fuentes.** Edita `sources.yml`, luego:
 
 ```bash
-curl -s -X POST http://10.0.0.21:8581/reload
+curl -s -X POST http://TU_IP_LAN:8581/reload
 ```
 
 y re-dispara "Actualizar canales" + "Refresh Guide" en Jellyfin.
