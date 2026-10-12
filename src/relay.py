@@ -367,6 +367,7 @@ class RelayHLS:
                 for ref in pendientes:
                     if self._stop.is_set():
                         return
+                    self._esperar_hueco()
                     datos = self._bajar_segmento(ref)
                     if datos is None:
                         continue
@@ -493,6 +494,29 @@ class RelayHLS:
             )
         self._rem.procesar(buf)
         return bytes(buf)
+
+    def _esperar_hueco(self, max_s: float = 30.0) -> None:
+        """No baja mas si el colchon esta lleno y hay alguien viendo.
+
+        - Discussion: sin esto el lector se adelanta al tope, `_podar()` suelta
+          por la IZQUIERDA —que es donde esta el cliente, porque va
+          ``COLCHON_SEGMENTOS`` detras— y se tiran segmentos que nadie consumio.
+          Medido en un cambio de fuente: 24.1 s de contenido perdidos, que es lo
+          que el espectador ve como tiron.
+        - Important: SIN clientes no se espera. El precalentado necesita que el
+          colchon siga avanzando para que el primer byte salga en ~0.02 s;
+          frenarlo dejaria segmentos rancios esperando a que alguien entre.
+        - Note: ``max_s`` evita que un cliente atascado congele al lector para
+          siempre; pasado ese rato vuelve al comportamiento viejo.
+        """
+        limite = time.monotonic() + max_s
+        while not self._stop.is_set():
+            with self._lock:
+                if not self._clientes or len(self._buf) < MAX_SEGMENTOS:
+                    return
+            if time.monotonic() >= limite:
+                return
+            self._stop.wait(0.2)
 
     def _podar(self) -> None:
         """Suelta lo viejo. La ventana tiene TOPE DURO, pase lo que pase.

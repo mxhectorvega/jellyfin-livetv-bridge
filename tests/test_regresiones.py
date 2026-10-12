@@ -558,6 +558,38 @@ def test_rele_remiendo_apagado_no_toca_nada():
     assert r._remiendos == 0
 
 
+def test_rele_el_lector_no_se_adelanta_al_tope_con_clientes():
+    """Con alguien viendo, el lector espera a que el colchon baje del tope.
+
+    Sin esto se sueltan por la izquierda segmentos que el cliente no consumio:
+    medido, 24.1 s de contenido perdidos en un cambio de fuente.
+    """
+    r = RelayHLS(["http://a/1.m3u8"], nombre="x")
+    for i in range(1, 20):
+        r._buf[i] = Segmento(i, f"u{i}", b"\x47" * 16, 8.0)
+    r._frente, r._primero = 19, 5
+    r._clientes[1] = (17, time.monotonic())
+    inicio = time.monotonic()
+    assert r._esperar_hueco(max_s=0.5) is None
+    assert time.monotonic() - inicio >= 0.5, "debio esperar"
+    # el cliente consume y el colchon baja del tope: el lector sigue
+    for i in range(1, 6):
+        del r._buf[i]
+    inicio = time.monotonic()
+    r._esperar_hueco(max_s=1.0)
+    assert time.monotonic() - inicio < 0.1, "con hueco no debe esperar"
+
+
+def test_rele_el_lector_no_espera_sin_clientes():
+    """El precalentado tiene que seguir avanzando: no se frena nunca."""
+    r = RelayHLS(["http://a/1.m3u8"], nombre="x")
+    for i in range(1, 20):
+        r._buf[i] = Segmento(i, f"u{i}", b"\x47" * 16, 8.0)
+    inicio = time.monotonic()
+    r._esperar_hueco(max_s=5.0)
+    assert time.monotonic() - inicio < 0.05, "no debio esperar sin clientes"
+
+
 def test_rele_el_empalme_se_encadena():
     """Un tercer salto no vuelve a la linea de tiempo original."""
     r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")
