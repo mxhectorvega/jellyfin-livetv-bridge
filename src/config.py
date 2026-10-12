@@ -146,6 +146,12 @@ class Settings:
     # apunta a /relay/<id> en vez de /stream/<id>.
     relay_enabled: bool = DEFAULT_RELAY_ENABLED
     relay_user_agent: str = DEFAULT_RELAY_UA
+    # Remiendo de la linea de tiempo al cambiar de fuente (src/ts_splice.py):
+    # desplaza PCR/PTS/DTS de la fuente nueva para que continue a la vieja. Sin
+    # cambio de fuente no escribe un byte (solo lee), pero se puede apagar.
+    relay_remendar: bool = True
+    # Duracion de un cuadro en ticks de 90 kHz: 3003 a 29.97 fps, 3600 a 25.
+    relay_paso_cuadro: int = 3003
 
     # IP concreta donde se ESCUCHA (vacio = todas, 0.0.0.0). El .env.example la
     # documentaba como LVB_BIND_IP desde el principio, pero el codigo nunca la
@@ -262,6 +268,8 @@ class Settings:
             max_transcodes=_range(get("max_transcodes", _env_str("LVB_MAX_TRANSCODES", str(DEFAULT_MAX_TRANSCODES))), int, DEFAULT_MAX_TRANSCODES, "max_transcodes", 0, 64),
             relay_enabled=_parse(get("relay_enabled", _env_str("LVB_RELAY_ENABLED", str(DEFAULT_RELAY_ENABLED))), _to_bool, DEFAULT_RELAY_ENABLED, "relay_enabled"),
             relay_user_agent=str(get("relay_user_agent", _env_str("LVB_RELAY_USER_AGENT", DEFAULT_RELAY_UA))),
+            relay_remendar=_parse(get("relay_remendar", _env_str("LVB_RELAY_REMENDAR", str(True))), _to_bool, True, "relay_remendar"),
+            relay_paso_cuadro=_range(get("relay_paso_cuadro", _env_str("LVB_RELAY_PASO_CUADRO", "3003")), int, 3003, "relay_paso_cuadro", 1, 90000),
             bind_ip=str(get("bind_ip", _env_str("LVB_BIND_IP", ""))).strip(),
             api_token=str(get("api_token", _env_str("LVB_API_TOKEN", ""))).strip(),
             relay_precalentar=_parse(get("relay_precalentar", _env_str("LVB_RELAY_PRECALENTAR", str(True))), _to_bool, True, "relay_precalentar"),

@@ -26,6 +26,7 @@ from src.normalize import clean_name
 from src.playlist import build_m3u, m3u_attr
 from src.relay import MAX_CLAVES, MAX_VISTOS, RelayHLS, RelayPool, Segmento
 from src.transcode import plan_for
+from src.ts_splice import MOD, escribir_sello, primer_pts
 
 
 # ---------------------------------------------------------------------------
@@ -506,3 +507,66 @@ def test_channels_no_expone_source_url(settings: Settings):
     assert datos[0]["id"] == "uno.mx"
     assert "con-token-secreto" not in client.get("/channels").text
     assert "con-token-secreto" not in client.get("/status").text
+
+
+# ---------------------------------------------------------------------------
+# RELE: empalme de la linea de tiempo al cambiar de fuente (2026-10-12)
+# ---------------------------------------------------------------------------
+def _segmento_ts(pts_inicial: int, cuadros: int = 3, paso: int = 3003,
+                 pid: int = 0x1E1) -> bytes:
+    """Segmento sintetico: N paquetes PES con PTS creciente."""
+    salida = bytearray()
+    for k in range(cuadros):
+        opc = bytearray(5)
+        escribir_sello(opc, 0, pts_inicial + k * paso, 0b0010)
+        cuerpo = (bytes([0x00, 0x00, 0x01, 0xE0, 0x00, 0x00, 0x80, 0x80, 0x05])
+                  + bytes(opc) + b"VIDEO" * 4)
+        pkt = bytearray([0x47, 0x40 | ((pid >> 8) & 0x1F), pid & 0xFF, 0x10]) + cuerpo
+        pkt += b"\xFF" * (188 - len(pkt))
+        salida += pkt
+    return bytes(salida)
+
+
+def test_rele_sin_cambio_de_fuente_no_toca_los_bytes():
+    """Con una sola fuente el remiendo es una pasada de LECTURA."""
+    r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")
+    seg = _segmento_ts(100_000)
+    assert r._remendar(seg) == seg
+    assert r._remiendos == 0
+
+
+def test_rele_empalma_la_linea_al_cambiar_de_fuente():
+    """Al saltar de fuente, el primer PTS nuevo cae justo despues del ultimo."""
+    r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")
+    r._remendar(_segmento_ts(100_000))
+    ultimo_a = r._rem.ultimo_pts_emitido
+    assert ultimo_a is not None
+    r._indice = 1                                   # el rele salto de fuente
+    salida = r._remendar(_segmento_ts(9_000_000))
+    assert r._remiendos == 1
+    assert primer_pts(salida) == (ultimo_a + r.paso_cuadro) % MOD
+    # la separacion entre cuadros se conserva
+    assert primer_pts(salida[188:]) == (ultimo_a + 2 * r.paso_cuadro) % MOD
+
+
+def test_rele_remiendo_apagado_no_toca_nada():
+    r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x", remendar=False)
+    r._remendar(_segmento_ts(100_000))
+    r._indice = 1
+    seg = _segmento_ts(9_000_000)
+    assert r._remendar(seg) == seg
+    assert r._remiendos == 0
+
+
+def test_rele_el_empalme_se_encadena():
+    """Un tercer salto no vuelve a la linea de tiempo original."""
+    r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")
+    r._remendar(_segmento_ts(1_000))
+    r._indice = 1
+    r._remendar(_segmento_ts(500_000))
+    tras_uno = r._rem.ultimo_pts_emitido
+    r._indice = 0
+    salida = r._remendar(_segmento_ts(1_000))
+    assert r._remiendos == 2
+    assert primer_pts(salida) == (tras_uno + r.paso_cuadro) % MOD
+    assert primer_pts(salida) > 1_000, "no volvio a la linea original"

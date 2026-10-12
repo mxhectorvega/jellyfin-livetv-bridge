@@ -40,11 +40,14 @@ src/
   transcode.py  etapa 6  copy por defecto; VAAPI/QSV con fallback a CPU
   health.py     etapa 7  health-check con backoff y activacion
   relay.py      extra    /relay/<id>: rele HLS con colchon propio y failover
+  ts_splice.py  extra    cosido de PCR/PTS/DTS al cambiar de fuente (ISO 13818-1)
   api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml /relay/<id> /stream/<id>
   main.py       etapa 9  orquestador
 config/sources.example.yml    plantilla (datos FICTICIOS)
 tests/                        pytest: ingesta, validacion, normalizacion, M3U, XMLTV
+tests/test_ts_splice.py       aritmetica de sellos byte a byte
 tests/e2e_sintetico.py        banco E2E: origen real con ffmpeg, relé y AES-128
+tests/banco_ts.py             banco del cosido: mide con ffprobe sobre un TS real
 .github/workflows/tests.yml   CI: pytest en Python 3.12 y 3.13
 ```
 
@@ -229,8 +232,12 @@ Que hace y que no:
 - **Salta a la fuente alterna** declarada en el bloque `respaldo:` de
   `sources.yml` (con el colchon vacio al primer fallo; con colchon lleno, a los
   tres seguidos).
-- **No cose el corte** de un `EXT-X-DISCONTINUITY` que cambia de host: eso
-  exigiria reescribir PTS/PCR paquete por paquete.
+- **Cose el corte de un `EXT-X-DISCONTINUITY` por LINEA DE TIEMPO, no por host.**
+  Al cambiar de fuente, `src/ts_splice.py` desplaza PCR, PTS y DTS para que la
+  linea de tiempo continué, y marca `discontinuity_indicator` una vez por PID.
+  Lo que sigue sin resolverse es el cambio de host a media emision (ffmpeg
+  termina el flujo y Jellyfin lo lee como "el canal se acabo"): eso es otra
+  pieza, no la linea de tiempo.
 - **Consume ancho de banda aunque nadie vea.** El precalentado deja el primer
   byte en ~0.02 s (el sondeo de Jellyfin espera 3 s), pero sostiene ~330 KB/s de
   bajada POR CANAL: 10 canales son ~26 Mbps continuos. Por eso hay tope
@@ -263,6 +270,8 @@ LVB_INCLUDE_PROTECTED      incluir cifrados/DRM marcados (true por defecto)
 LVB_HWACCEL                auto | vaapi | qsv | cpu | off
 LVB_MAX_TRANSCODES         limite de recodificaciones simultaneas sin GPU
 LVB_RELAY_ENABLED          publicar /relay/<id> en vez de /stream/<id>
+LVB_RELAY_REMENDAR         coser la linea de tiempo al cambiar de fuente (true)
+LVB_RELAY_PASO_CUADRO      duracion de un cuadro en ticks de 90 kHz (3003)
 LVB_RELAY_PRECALENTAR_MAX  canales precalentados a la vez (cada uno ~330 KB/s)
 LVB_RELAY_IDLE_S           segundos sin clientes para apagar un rele ya usado
 LVB_HEALTH_INTERVAL_S      intervalo del health-check
@@ -295,8 +304,11 @@ Un valor invalido **avisa y usa el de fabrica**; nunca impide el arranque.
   host a media emision, ffmpeg termina el flujo y Jellyfin lo lee como "el
   canal se acabo" (log: `Cannot reuse HTTP connection for different host`).
   `/relay/<id>` **absorbe el hueco** mientras el origen siga publicando
-  segmentos, pero no reescribe PTS/PCR: un cambio de host se sigue notando como
-  un tiron en el reproductor.
+  segmentos. El cambio de FUENTE (el failover a un respaldo) si queda cosido:
+  `src/ts_splice.py` desplaza los sellos de la fuente nueva para que su linea de
+  tiempo continue a la vieja, asi que ya no se ve el tiron del salto. Lo que
+  sigue notandose es el cambio de host del propio origen, que es harina de otro
+  costal.
 - **DRM/CENC:** no se reproduce. Detectado y marcado.
 - **Sin GPU:** VAAPI/QSV solo si el host expone `/dev/dri` con driver i965
   funcional. En Intel HD 4000 el encode VAAPI es limitado; el plan cae a CPU.

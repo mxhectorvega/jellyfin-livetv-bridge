@@ -43,6 +43,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Iterator
 
+from .ts_splice import Remendador, primer_pts
 from .util import get_logger
 
 log = get_logger("relay")
@@ -107,7 +108,8 @@ def _http(url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int 
 class RelayHLS:
     """Lee un origen HLS y mantiene un colchón de segmentos reemisible."""
 
-    def __init__(self, fuentes, user_agent: str = "", resolver=None, nombre: str = "") -> None:
+    def __init__(self, fuentes, user_agent: str = "", resolver=None, nombre: str = "",
+                 remendar: bool = True, paso_cuadro: int = 3003) -> None:
         """``fuentes`` es la principal seguida de sus respaldos (en orden).
 
         - Discussion: si la principal deja de responder ``FALLOS_PARA_CAMBIAR``
@@ -151,6 +153,16 @@ class RelayHLS:
         self._refrescos = 0          # veces que hubo que re-resolver el master
         self._descargas = 0
         self._espera_s = SONDEO_S    # espera entre vueltas del lector (backoff)
+        # Remiendo de la linea de tiempo (ver src/ts_splice.py). Con una sola
+        # fuente, o antes del primer cambio, `procesar` solo LEE: no escribe un
+        # byte mientras el delta sea 0. El desplazamiento se calcula nada mas
+        # cuando el segmento que llega viene de una fuente distinta a la del
+        # ultimo que se guardo.
+        self.remendar = remendar
+        self.paso_cuadro = paso_cuadro
+        self._rem = Remendador()
+        self._fuente_de_datos = self._indice
+        self._remiendos = 0
         self._stop = threading.Event()
         self._hilo: threading.Thread | None = None
         self._siguiente_cliente = 0
@@ -358,6 +370,7 @@ class RelayHLS:
                     datos = self._bajar_segmento(ref)
                     if datos is None:
                         continue
+                    datos = self._remendar(datos)
                     with self._lock:
                         self._recordar_visto(ref.url)
                         self._frente += 1
@@ -455,6 +468,32 @@ class RelayHLS:
                 time.sleep(DESCARGA_ESPERA_S * (intento + 1))
         return None
 
+    def _remendar(self, datos: bytes) -> bytes:
+        """Ajusta la linea de tiempo cuando la fuente activa cambio.
+
+        - Discussion: se aplica ANTES de entrar al colchon, para que el cliente
+          reciba los sellos ya remendados. Con `delta == 0` (una sola fuente, o
+          antes del primer cambio) esto es una pasada de lectura pura.
+        - Important: el empalme se calcula contra `primer_pts` del segmento
+          CRUDO que acaba de llegar, que es el primer sello de la fuente nueva.
+        """
+        if not self.remendar:
+            return datos
+        buf = bytearray(datos)
+        if self._fuente_de_datos != self._indice:
+            delta = self._rem.sincronizar(
+                self._rem.ultimo_pts_emitido, primer_pts(buf), paso=self.paso_cuadro
+            )
+            self._fuente_de_datos = self._indice
+            self._remiendos += 1
+            log.warning(
+                "relay: empalmando linea de tiempo",
+                extra={"channel": self.nombre,
+                       "detail": f"fuente={self._indice} delta={delta}"},
+            )
+        self._rem.procesar(buf)
+        return bytes(buf)
+
     def _podar(self) -> None:
         """Suelta lo viejo. La ventana tiene TOPE DURO, pase lo que pase.
 
@@ -517,6 +556,9 @@ class RelayHLS:
                 "claves": len(self._claves),
                 "tuvo_clientes": self._tuvo_clientes,
                 "espera_s": round(self._espera_s, 2),
+                "remendando": self.remendar,
+                "remiendos": self._remiendos,
+                "ultimo_pts": self._rem.ultimo_pts_emitido,
             }
 
     # ---------------------------------------------------------------- cliente
@@ -602,7 +644,8 @@ class RelayPool:
         self._lock = threading.Lock()
         self._relays: dict[str, RelayHLS] = {}
 
-    def get(self, clave: str, fuentes, user_agent: str = "", resolver=None) -> RelayHLS:
+    def get(self, clave: str, fuentes, user_agent: str = "", resolver=None,
+            remendar: bool = True, paso_cuadro: int = 3003) -> RelayHLS:
         """Devuelve (creando si hace falta) el relé de un canal.
 
         - Discussion: ``fuentes`` es la principal + sus respaldos. La clave es
@@ -617,11 +660,15 @@ class RelayPool:
             if relay is None or relay.fuentes != lista:
                 if relay is not None:
                     relay.detener()
-                relay = RelayHLS(lista, user_agent, resolver=resolver, nombre=clave)
+                relay = RelayHLS(lista, user_agent, resolver=resolver, nombre=clave,
+                                 remendar=remendar, paso_cuadro=paso_cuadro)
                 relay.arrancar()
                 self._relays[clave] = relay
-            elif resolver is not None:
-                relay.resolver = resolver
+            else:
+                if resolver is not None:
+                    relay.resolver = resolver
+                relay.remendar = remendar
+                relay.paso_cuadro = paso_cuadro
             return relay
 
     def stats(self) -> dict:

@@ -279,6 +279,8 @@ def create_app(state: AppState) -> FastAPI:
             fuentes_de_canal(channel),
             state.settings.relay_user_agent,
             resolver=resolver_de_canal(channel, state.settings),
+            remendar=state.settings.relay_remendar,
+            paso_cuadro=state.settings.relay_paso_cuadro,
         )
         return StreamingResponse(relay.servir(), media_type="video/mp2t")
 
