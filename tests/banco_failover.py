@@ -6,13 +6,14 @@ que empieza a devolver 404. Le mide el PTS a la SALIDA del rele con ffprobe.
 
 Uso: .venv/bin/python tests/banco_failover.py <clave_de_respaldo>
 """
+
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import threading
 import time
-import subprocess
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,7 +22,6 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 import yaml  # noqa: E402
-
 from src.relay import RelayHLS  # noqa: E402
 
 CLAVE = sys.argv[1] if len(sys.argv) > 1 else "canal.22.de.mxico.mx"
@@ -68,9 +68,23 @@ class Flaky(BaseHTTPRequestHandler):
 
 
 def pts_de(archivo: Path) -> list[float]:
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                        "-show_packets", "-show_entries", "packet=pts_time",
-                        "-of", "json", str(archivo)], capture_output=True, timeout=240)
+    r = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_packets",
+            "-show_entries",
+            "packet=pts_time",
+            "-of",
+            "json",
+            str(archivo),
+        ],
+        capture_output=True,
+        timeout=240,
+    )
     if r.returncode != 0:
         return []
     try:
@@ -107,8 +121,9 @@ def correr(remendar: bool) -> tuple[float, float, int, int]:
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     puerto = srv.server_address[1]
 
-    relay = RelayHLS([f"http://127.0.0.1:{puerto}/vivo.m3u8", str(respaldos[0])],
-                     nombre=CLAVE, remendar=remendar)
+    relay = RelayHLS(
+        [f"http://127.0.0.1:{puerto}/vivo.m3u8", str(respaldos[0])], nombre=CLAVE, remendar=remendar
+    )
     relay.arrancar()
     salida = Path(f"/home/server/tmp_lvb/failover_{'con' if remendar else 'sin'}.ts")
     t0 = time.time()
@@ -139,5 +154,7 @@ print(f"canal: {CLAVE} | la fuente principal muere a los {MUERE_A:.0f} s de {SEG
 for flag in (False, True):
     paso, pos, cambios, remiendos = correr(flag)
     etiqueta = "CON empalme" if flag else "SIN empalme"
-    print(f"{etiqueta:12} escalon mayor {paso:9.3f} s (en {pos:5.0%} del flujo) "
-          f"| cambios de fuente={cambios} remiendos={remiendos}")
+    print(
+        f"{etiqueta:12} escalon mayor {paso:9.3f} s (en {pos:5.0%} del flujo) "
+        f"| cambios de fuente={cambios} remiendos={remiendos}"
+    )

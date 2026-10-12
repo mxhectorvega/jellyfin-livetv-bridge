@@ -7,7 +7,12 @@
 # asume VAAPI. Si el host expone /dev/dri y el driver i965 esta disponible,
 # se pasa por docker-compose; si no, transcode.py cae a CPU por si solo.
 
-FROM python:3.12-slim
+# La base va FIJADA por digest, no solo por etiqueta: `python:3.12-slim` es un
+# blanco movil y un rebuild el mes que entra trae otro Debian sin que nadie lo
+# revise. Para subirla: elegir el digest nuevo en
+# https://hub.docker.com/_/python -> tags -> 3.12-slim, y comprobarlo con
+# `docker build` + la suite. Digest del 2026-10-12.
+FROM python:3.12-slim@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

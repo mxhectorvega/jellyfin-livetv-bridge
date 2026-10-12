@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from datetime import UTC
 
+from fastapi.testclient import TestClient
 from src.api import AppState, create_app
 from src.config import Settings
 from src.epg import EpgBundle
@@ -59,12 +60,14 @@ def test_active_catalog_archivo_gana_al_entorno(settings: Settings):
 
 
 def test_write_active_outputs_escribe_solo_el_activo(settings: Settings):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = (now - timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
     stop = (now + timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
-    programa = f'<programme start="{start}" stop="{stop}" channel="src"><title>P</title></programme>'
+    programa = (
+        f'<programme start="{start}" stop="{stop}" channel="src"><title>P</title></programme>'
+    )
     bundle = EpgBundle()
     canales = _canales()
     for ch in canales:

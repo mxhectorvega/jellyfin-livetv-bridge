@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jellyfin-livetv-bridge"
+version = "0.1.0"
+description = "Puente de Live TV para Jellyfin: listas M3U/HLS a tuner + guia, con rele de colchon y cosido de la linea de tiempo."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Héctor Vega" }]
+keywords = ["jellyfin", "iptv", "m3u", "xmltv", "mpegts", "hls", "homelab"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Video",
+]
+# Las MISMAS versiones que requirements.txt. Hay una prueba que compara los dos
+# (tests/test_estandares.py) para que no se separen sin que nadie lo note.
+dependencies = [
+  "PyYAML==6.0.2",
+  "fastapi==0.115.6",
+  "uvicorn==0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.4",
+  "httpx==0.28.1",
+  "ruff==0.17.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mxhectorvega/jellyfin-livetv-bridge"
+
+[tool.setuptools]
+packages = ["src"]
+
+# ---------------------------------------------------------------------------
+# Estilo. La regla se FIJA aqui: 100 columnas, y ruff la hace cumplir en CI.
+# PEP 8 pide 79 "para codigo"; 100 es el limite que este proyecto declara y
+# verifica, que es lo que lo vuelve un estandar y no una intencion.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

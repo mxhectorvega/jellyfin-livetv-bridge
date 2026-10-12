@@ -27,16 +27,28 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 
 from . import __version__
 from .config import Settings
 from .health import HealthMonitor
 from .models import Channel
-from .playlist import build_m3u, catalogs_of, select_for_output, set_active_catalog, write_active_outputs
+from .playlist import (
+    build_m3u,
+    catalogs_of,
+    select_for_output,
+    set_active_catalog,
+    write_active_outputs,
+)
 from .relay import RelayPool
 from .transcode import build_ffmpeg_cmd, can_transcode, plan_for
-from .util import get_logger, now_iso
+from .util import get_logger
 
 log = get_logger("api")
 
@@ -49,8 +61,8 @@ class AppState:
     channels: dict[str, Channel] = field(default_factory=dict)
     monitor: HealthMonitor | None = None
     cfg: dict[str, Any] = field(default_factory=dict)
-    epg_bundle: Any = None          # EpgBundle en memoria: permite cambiar de
-                                    # catalogo sin re-descargar la guia
+    epg_bundle: Any = None  # EpgBundle en memoria: permite cambiar de
+    # catalogo sin re-descargar la guia
     last_pipeline: str = ""
     last_report: dict[str, Any] = field(default_factory=dict)
     pipeline_running: bool = False
@@ -225,12 +237,30 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/playlist.m3u")
     async def playlist() -> PlainTextResponse:
+        """M3U para Jellyfin (tuner tipo ``m3u``).
+
+        - Discussion: el tipo de medio es ``audio/mpegurl``, uno de los DOS que
+          RFC 8216 §4 admite para identificar una lista (el otro es
+          ``application/vnd.apple.mpegurl``). Se servia ``audio/x-mpegurl``, que
+          no es ninguno de los dos.
+        - Note: ``no-store`` porque la lista cambia con el health-check: un
+          cliente que la cachee se queda con canales ya desactivados.
+        """
         text = build_m3u(
             select_for_output(state.channel_list(), state.settings),
             state.settings,
             use_relay=state.settings.relay_enabled,
         )
-        return PlainTextResponse(text, media_type="audio/x-mpegurl")
+        return PlainTextResponse(
+            text, media_type="audio/mpegurl", headers={"Cache-Control": "no-store"}
+        )
+
+    @app.head("/playlist.m3u")
+    async def playlist_head() -> Response:
+        """HEAD explicito: una ruta GET no lo atiende y devolvia 405."""
+        return Response(
+            status_code=200, media_type="audio/mpegurl", headers={"Cache-Control": "no-store"}
+        )
 
     @app.get("/epg.xml")
     async def epg_xml() -> FileResponse:
@@ -238,6 +268,12 @@ def create_app(state: AppState) -> FastAPI:
         if not path.exists():
             raise HTTPException(status_code=404, detail="epg.xml aun no generado")
         return FileResponse(path, media_type="application/xml", filename="epg.xml")
+
+    @app.head("/epg.xml")
+    async def epg_head() -> Response:
+        if not state.settings.epg_file.exists():
+            raise HTTPException(status_code=404, detail="epg.xml aun no generado")
+        return Response(status_code=200, media_type="application/xml")
 
     @app.post("/reload")
     async def reload_pipeline(request: Request) -> dict[str, Any]:
@@ -270,9 +306,11 @@ def create_app(state: AppState) -> FastAPI:
         if channel is None:
             raise HTTPException(status_code=404, detail="canal desconocido")
         if not channel.enabled:
-            raise HTTPException(status_code=409, detail=f"canal desactivado: {channel.disabled_reason}")
+            raise HTTPException(
+                status_code=403, detail=f"canal desactivado: {channel.disabled_reason}"
+            )
         if channel.probe.drm:
-            raise HTTPException(status_code=451, detail="DRM (CENC/SAMPLE-AES): no reproducible")
+            raise HTTPException(status_code=403, detail="DRM (CENC/SAMPLE-AES): no reproducible")
 
         relay = state.relay_pool.get(
             channel.id,
@@ -296,7 +334,9 @@ def create_app(state: AppState) -> FastAPI:
 
         key = urllib.parse.unquote(clave).strip().lower()
         if key not in CANALES:
-            raise HTTPException(status_code=404, detail=f"canal no listado: {key}. hay: {sorted(CANALES)}")
+            raise HTTPException(
+                status_code=404, detail=f"canal no listado: {key}. hay: {sorted(CANALES)}"
+            )
         try:
             destino = resolver_url(key)
         except Exception as exc:  # noqa: BLE001
@@ -310,9 +350,11 @@ def create_app(state: AppState) -> FastAPI:
         if channel is None:
             raise HTTPException(status_code=404, detail="canal desconocido")
         if not channel.enabled:
-            raise HTTPException(status_code=409, detail=f"canal desactivado: {channel.disabled_reason}")
+            raise HTTPException(
+                status_code=403, detail=f"canal desactivado: {channel.disabled_reason}"
+            )
         if channel.probe.drm:
-            raise HTTPException(status_code=451, detail="DRM (CENC/SAMPLE-AES): no reproducible")
+            raise HTTPException(status_code=403, detail="DRM (CENC/SAMPLE-AES): no reproducible")
 
         plan = plan_for(channel, state.settings)
         if not plan.is_copy and not can_transcode(state.settings):

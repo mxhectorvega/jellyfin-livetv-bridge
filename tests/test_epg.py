@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from datetime import UTC
 
 from src.config import Settings
 from src.epg import (
@@ -37,16 +38,17 @@ def test_parse_xmltv_indexa_canales_y_programas():
 
 
 def test_parse_xmltv_conserva_programas_vigentes():
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = (now - timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
     stop = (now + timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
     xml = (
         '<?xml version="1.0"?><tv>'
         '<channel id="a"><display-name>A</display-name></channel>'
         f'<programme start="{start}" stop="{stop}" channel="a"><title>Ahora</title></programme>'
-        f'<programme start="20200101000000 +0000" stop="20200101010000 +0000" channel="a"><title>Viejo</title></programme>'
+        '<programme start="20200101000000 +0000" '
+        'stop="20200101010000 +0000" channel="a"><title>Viejo</title></programme>'
         "</tv>"
     )
     bundle = parse_xmltv(xml.encode())
@@ -106,15 +108,17 @@ def test_fetch_epg_fusiona_y_reporta_caidas(monkeypatch, tmp_path):
 
 
 def test_render_xmltv_usa_ids_propios_y_deduplica(settings: Settings):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = (now - timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
     stop = (now + timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
     xml = (
         '<tv><channel id="src1"><display-name>Canal Uno</display-name></channel>'
-        f'<programme start="{start}" stop="{stop}" channel="src1"><title>Programa Uno</title></programme>'
-        f'<programme start="{start}" stop="{stop}" channel="src1"><title>Programa Uno</title></programme>'
+        f'<programme start="{start}" stop="{stop}" channel="src1">'
+        "<title>Programa Uno</title></programme>"
+        f'<programme start="{start}" stop="{stop}" channel="src1">'
+        "<title>Programa Uno</title></programme>"
         "</tv>"
     )
     bundle = parse_xmltv(xml.encode())
@@ -137,15 +141,18 @@ def test_render_xmltv_publica_una_sola_parrilla_sin_traslapes(settings: Settings
     Medido en produccion: Canal del Congreso (iptv-epg MX) traia 27 traslapes
     sobre 83 programas, y Jellyfin los dibuja encimados.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     fmt = "%Y%m%d%H%M%S +0000"
 
     def prog(offset_h: float, dur_h: float, titulo: str) -> str:
         ini = (now + timedelta(hours=offset_h)).strftime(fmt)
         fin = (now + timedelta(hours=offset_h + dur_h)).strftime(fmt)
-        return f'<programme start="{ini}" stop="{fin}" channel="src1"><title>{titulo}</title></programme>'
+        return (
+            f'<programme start="{ini}" stop="{fin}" channel="src1">'
+            f"<title>{titulo}</title></programme>"
+        )
 
     xml = (
         '<tv><channel id="src1"><display-name>Congreso</display-name></channel>'
@@ -164,7 +171,7 @@ def test_render_xmltv_publica_una_sola_parrilla_sin_traslapes(settings: Settings
     assert titulos == ["Rejilla A1", "Rejilla A2"]
 
     spans = [(p.get("start"), p.get("stop")) for p in root.findall("programme")]
-    for (_, fin_previo), (inicio, _) in zip(spans, spans[1:]):
+    for (_, fin_previo), (inicio, _) in zip(spans, spans[1:], strict=False):
         assert fin_previo <= inicio
 
 

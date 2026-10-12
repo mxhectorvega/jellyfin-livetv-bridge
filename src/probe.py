@@ -31,25 +31,31 @@ from .util import get_logger, http_get, now_iso, run_cmd
 log = get_logger("probe")
 
 FFPROBE = "ffprobe"
-MIN_SEGMENT_BYTES = 60_000     # un segmento TS real pesa 2-4 MB; 60 KB es piso
+MIN_SEGMENT_BYTES = 60_000  # un segmento TS real pesa 2-4 MB; 60 KB es piso
 MANIFEST_MAX_BYTES = 2 * 1024 * 1024
 SEGMENT_MAX_BYTES = 8 * 1024 * 1024
 # Se pide solo el inicio del segmento: alcanza para la firma y el piso, y evita
 # bajar 2-4 MB por canal en cada barrido.
 SEGMENT_RANGE = "bytes=0-262143"
-MAX_HLS_NIVELES = 3            # Pluto anida master -> playlist de chunks -> segmento
-REINTENTOS_LIVENESS = 4        # el CDN de Pluto devuelve manifiestos vacios bajo carga
-REINTENTO_ESPERA_S = 0.8       # (medido: 22/24 con 2 hilos vs 1/12 con 6 hilos)
+MAX_HLS_NIVELES = 3  # Pluto anida master -> playlist de chunks -> segmento
+REINTENTOS_LIVENESS = 4  # el CDN de Pluto devuelve manifiestos vacios bajo carga
+REINTENTO_ESPERA_S = 0.8  # (medido: 22/24 con 2 hilos vs 1/12 con 6 hilos)
 
 # Marcadores de proteccion en manifiestos. OJO: "DRMCapabilities=" es una
 # capacidad DECLARADA POR EL CLIENTE en el query string, no una proteccion del
 # contenido; leerlo como DRM daba falso positivo en todo el catalogo de Pluto.
 _KEY_RE = re.compile(r"#EXT-X-KEY:[^\n]*METHOD\s*=\s*([A-Z0-9-]+)", re.I)
-_DRM_RE = re.compile(r"(ContentProtection|widevine|playready|clearkey|pssh|"
-                     r"licenseurl|drmtoday|#EXT-X-SESSION-KEY|SAMPLE-AES)", re.I)
+_DRM_RE = re.compile(
+    r"(ContentProtection|widevine|playready|clearkey|pssh|"
+    r"licenseurl|drmtoday|#EXT-X-SESSION-KEY|SAMPLE-AES)",
+    re.I,
+)
 _DRM_CAP_RE = re.compile(r"DRMCapabilities=[^&\"'\s]*", re.I)
-_TOKEN_RE = re.compile(r"(?:[?&](jwt|token|hdnts|hdnea|exp|expires|sig|signature|"
-                       r"auth|apikey|api_key|key)=)", re.I)
+_TOKEN_RE = re.compile(
+    r"(?:[?&](jwt|token|hdnts|hdnea|exp|expires|sig|signature|"
+    r"auth|apikey|api_key|key)=)",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -117,14 +123,25 @@ def probe_ffprobe(url: str, timeout: float = 10.0) -> ProbeResult:
       sondear; sondear sin ellas da falsos positivos.
     """
     cmd = [
-        FFPROBE, "-v", "error", "-print_format", "json",
-        "-analyzeduration", "3000000", "-probesize", "3000000",
-        "-show_format", "-show_streams", url,
+        FFPROBE,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-analyzeduration",
+        "3000000",
+        "-probesize",
+        "3000000",
+        "-show_format",
+        "-show_streams",
+        url,
     ]
     code, out, err = run_cmd(cmd, timeout=timeout)
     result = ProbeResult(method="ffprobe", checked_at=now_iso())
     if code != 0 or not out.strip():
-        result.error = (err or b"").decode("utf-8", "replace").strip()[:300] or f"ffprobe code {code}"
+        result.error = (err or b"").decode("utf-8", "replace").strip()[
+            :300
+        ] or f"ffprobe code {code}"
         return result
     try:
         info = json.loads(out.decode("utf-8", "replace"))
@@ -170,7 +187,9 @@ def probe_ffprobe(url: str, timeout: float = 10.0) -> ProbeResult:
 # ---------------------------------------------------------------------------
 # Liveness real
 # ---------------------------------------------------------------------------
-def _descender(url: str, timeout: float, profundidad: int = MAX_HLS_NIVELES) -> tuple[str, bytes, dict[str, bool], str]:
+def _descender(
+    url: str, timeout: float, profundidad: int = MAX_HLS_NIVELES
+) -> tuple[str, bytes, dict[str, bool], str]:
     """Baja por los niveles de HLS hasta dar con un SEGMENTO real.
 
     - Discussion: Pluto anida tres niveles (master de calidades -> playlist de
@@ -198,7 +217,9 @@ def _descender(url: str, timeout: float, profundidad: int = MAX_HLS_NIVELES) -> 
         for key, value in nivel_flags.items():
             flags[key] = flags[key] or value
 
-        candidatos = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+        candidatos = [
+            ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")
+        ]
         if not candidatos:
             return "", b"", flags, "manifiesto sin lineas utiles"
 
@@ -214,10 +235,10 @@ def _descender(url: str, timeout: float, profundidad: int = MAX_HLS_NIVELES) -> 
                 ultimo_error = str(exc)[:200]
                 continue
             if signature(trozo) == "m3u8":
-                actual = hijo          # es otro nivel de playlist: seguir bajando
+                actual = hijo  # es otro nivel de playlist: seguir bajando
                 descendido = True
                 break
-            return hijo, trozo, flags, ""    # esto ya es el segmento
+            return hijo, trozo, flags, ""  # esto ya es el segmento
         if not descendido:
             return "", b"", flags, f"ningun candidato accesible ({ultimo_error or 'vacio'})"
     return "", b"", flags, f"anidamiento mayor a {profundidad} niveles"
@@ -312,7 +333,9 @@ def probe_liveness(url: str, timeout: float = 10.0) -> ProbeResult:
     return result
 
 
-def check_stream(url: str, timeout: float = 10.0, mode: str = "liveness", settings: Settings | None = None) -> ProbeResult:
+def check_stream(
+    url: str, timeout: float = 10.0, mode: str = "liveness", settings: Settings | None = None
+) -> ProbeResult:
     """Valida un stream combinando metadatos y (segun el modo) bytes reales.
 
     - Discussion: si se pasa ``settings``, la URL se reescribe antes de validar
@@ -372,7 +395,9 @@ def check_channels(channels: list[Channel], settings: Settings) -> list[Channel]
     workers = max(1, int(settings.probe_workers))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(check_stream, ch.source_url, settings.probe_timeout_s, settings.probe_mode, settings): ch
+            pool.submit(
+                check_stream, ch.source_url, settings.probe_timeout_s, settings.probe_mode, settings
+            ): ch
             for ch in channels
         }
         done = 0
@@ -381,7 +406,9 @@ def check_channels(channels: list[Channel], settings: Settings) -> list[Channel]
             try:
                 ch.probe = future.result()
             except Exception as exc:  # noqa: BLE001 — la validacion nunca tumba el pipeline
-                ch.probe = ProbeResult(method=settings.probe_mode, error=str(exc)[:300], checked_at=now_iso())
+                ch.probe = ProbeResult(
+                    method=settings.probe_mode, error=str(exc)[:300], checked_at=now_iso()
+                )
             done += 1
             if ch.probe.accessible:
                 ch.disabled_reason = ""

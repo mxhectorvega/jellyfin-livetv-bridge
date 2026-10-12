@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from src.models import Channel
-from src.normalize import aplicar_respaldos, normalize
-from src.normalize import name_key, normalize_tvg_id
+from src.normalize import aplicar_respaldos, name_key, normalize, normalize_tvg_id
 
 
 def test_respaldos_por_id_tvg_id_y_nombre():

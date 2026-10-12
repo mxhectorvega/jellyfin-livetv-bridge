@@ -112,7 +112,7 @@ def clave_de_url(url: str, base_local: str) -> str | None:
     prefijo = base_local.rstrip("/")
     if not url.startswith(prefijo):
         return None
-    clave = url[len(prefijo):].split("?")[0].strip("/").split("/")[0].lower()
+    clave = url[len(prefijo) :].split("?")[0].strip("/").split("/")[0].lower()
     return clave if clave in CANALES else None
 
 
@@ -133,5 +133,7 @@ def reescribir_url(url: str, base_local: str, habilitado: bool = True, forzar: b
     try:
         return resolver_url(clave, forzar=forzar)
     except Exception as exc:  # noqa: BLE001 — nunca tumbar por un token
-        log.error("no se pudo resolver el token", extra={"channel": clave, "detail": str(exc)[:200]})
+        log.error(
+            "no se pudo resolver el token", extra={"channel": clave, "detail": str(exc)[:200]}
+        )
         return url

@@ -41,7 +41,7 @@ class TranscodePlan:
 
     copy_video: bool = True
     copy_audio: bool = True
-    hwaccel: str = ""          # "" | vaapi | qsv | cpu
+    hwaccel: str = ""  # "" | vaapi | qsv | cpu
     reason: str = ""
 
     @property
@@ -63,7 +63,9 @@ def detect_hwaccel(preference: str = "auto") -> str:
         return "cpu"
 
     code, out, _ = run_cmd(["ffmpeg", "-hide_banner", "-hwaccels"], timeout=10)
-    available = {line.strip().lower() for line in (out or b"").decode("utf-8", "replace").splitlines()}
+    available = {
+        line.strip().lower() for line in (out or b"").decode("utf-8", "replace").splitlines()
+    }
     has_dri = os.path.isdir("/dev/dri")
 
     if choice == "vaapi":
@@ -128,9 +130,19 @@ def build_ffmpeg_cmd(
     - Important: los comandos se pasan siempre como LISTA, nunca por shell.
     """
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-        "-fflags", "+genpts+igndts",
-        "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-fflags",
+        "+genpts+igndts",
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-reconnect_delay_max",
+        "5",
     ]
     if plan.hwaccel == "vaapi":
         cmd += ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128"]
@@ -176,7 +188,11 @@ def count_active_transcodes() -> int:
                     cmdline = fh.read().decode("utf-8", "replace")
             except OSError:
                 continue
-            if "ffmpeg" in cmdline and "-c:v" in cmdline and "copy" not in cmdline.split("-c:v", 1)[1][:12]:
+            if (
+                "ffmpeg" in cmdline
+                and "-c:v" in cmdline
+                and "copy" not in cmdline.split("-c:v", 1)[1][:12]
+            ):
                 total += 1
     except OSError:
         return 0

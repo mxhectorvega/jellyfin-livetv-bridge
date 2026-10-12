@@ -21,7 +21,6 @@ API -> /stream -> /relay -> failover -> AES-128.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import socket
@@ -30,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import UTC
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -37,8 +37,8 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-PUERTO = 8799           # origen HLS sintetico
-PUERTO_API = 8798       # la API real que se levanta para probar los flujos
+PUERTO = 8799  # origen HLS sintetico
+PUERTO_API = 8798  # la API real que se levanta para probar los flujos
 CLAVE_AES = "000102030405060708090a0b0c0d0e0f"
 FALLOS: list[str] = []
 PASOS = 0
@@ -121,19 +121,50 @@ def generar_hls(destino: Path) -> None:
     for etiqueta, escala, kbps in (("720", "1280x720", "1200k"), ("360", "640x360", "400k")):
         subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-f", "lavfi", "-i", f"testsrc2=size={escala}:rate=25",
-                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
-                "-t", "24",
-                "-c:v", "libx264", "-preset", "ultrafast", "-b:v", kbps,
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"testsrc2=size={escala}:rate=25",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=44100",
+                "-t",
+                "24",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-b:v",
+                kbps,
                 # GOP corto y forzado: sin esto el primer segmento dura lo que el
                 # keyframe por defecto (250 frames = 10 s) y el "hls_time 3" no se
                 # respeta. Un HLS en vivo real usa GOP de un segmento.
-                "-g", "75", "-keyint_min", "75", "-sc_threshold", "0",
-                "-force_key_frames", "expr:gte(t,n_forced*3)",
-                "-c:a", "aac", "-b:a", "64k",
-                "-f", "hls", "-hls_time", "3", "-hls_list_size", "0",
-                "-hls_segment_filename", str(destino / f"v{etiqueta}_%03d.ts"),
+                "-g",
+                "75",
+                "-keyint_min",
+                "75",
+                "-sc_threshold",
+                "0",
+                "-force_key_frames",
+                "expr:gte(t,n_forced*3)",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "64k",
+                "-f",
+                "hls",
+                "-hls_time",
+                "3",
+                "-hls_list_size",
+                "0",
+                "-hls_segment_filename",
+                str(destino / f"v{etiqueta}_%03d.ts"),
                 str(destino / f"v{etiqueta}.m3u8"),
             ],
             check=True,
@@ -165,9 +196,21 @@ def generar_aes(destino: Path) -> str:
         iv = f"{i:032x}"
         cifrado = destino / f"aes_{i:03d}.ts"
         subprocess.run(
-            ["openssl", "enc", "-aes-128-cbc", "-K", CLAVE_AES, "-iv", iv,
-             "-in", str(segmento), "-out", str(cifrado)],
-            check=True, capture_output=True,
+            [
+                "openssl",
+                "enc",
+                "-aes-128-cbc",
+                "-K",
+                CLAVE_AES,
+                "-iv",
+                iv,
+                "-in",
+                str(segmento),
+                "-out",
+                str(cifrado),
+            ],
+            check=True,
+            capture_output=True,
         )
         lineas += [
             f'#EXT-X-KEY:METHOD=AES-128,URI="aes.key",IV=0x{iv}',
@@ -186,18 +229,22 @@ def escribir_guia(config: Path) -> Path:
       (-6 h) para probar el filtro temporal. Y los programas van bajo el id de
       la GUIA, no bajo el nuestro: el empate explicito los reetiqueta despues.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.now(UTC)
+
     def t(dt):
         return dt.strftime("%Y%m%d%H%M%S +0000")
+
     guia = config / "guia.xml"
     guia.write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<tv>\n'
         '  <channel id="guia.prueba"><display-name>Guia Prueba</display-name></channel>\n'
-        f'  <programme start="{t(ahora - timedelta(minutes=30))}" stop="{t(ahora + timedelta(minutes=30))}" '
+        f'  <programme start="{t(ahora - timedelta(minutes=30))}" '
+        f'stop="{t(ahora + timedelta(minutes=30))}" '
         'channel="guia.prueba"><title>Programa Prueba</title></programme>\n'
-        f'  <programme start="{t(ahora - timedelta(hours=8))}" stop="{t(ahora - timedelta(hours=7))}" '
+        f'  <programme start="{t(ahora - timedelta(hours=8))}" '
+        f'stop="{t(ahora - timedelta(hours=7))}" '
         'channel="guia.prueba"><title>Programa Viejo</title></programme>\n'
         "</tv>\n",
         encoding="utf-8",
@@ -288,7 +335,9 @@ def main() -> int:
         generar_hls(hls)
         segmentos = sorted(hls.glob("v720_*.ts"))
         afirmar(len(segmentos) >= 4, f"{len(segmentos)} segmentos 720p generados")
-        afirmar((hls / "v720_000.ts").read_bytes()[:1] == b"\x47", "el segmento empieza con 0x47 (TS)")
+        afirmar(
+            (hls / "v720_000.ts").read_bytes()[:1] == b"\x47", "el segmento empieza con 0x47 (TS)"
+        )
 
         paso("Cifrar una variante con AES-128 (una llave por segmento)")
         aes_playlist = generar_aes(hls)
@@ -298,8 +347,12 @@ def main() -> int:
 
         (base / "cfg-tmp").mkdir(exist_ok=True)
         guia = escribir_guia(base / "cfg-tmp")
-        config = escribir_config(base, guia, f"http://127.0.0.1:{PUERTO}/{aes_playlist}",
-                                 f"http://127.0.0.1:{PUERTO}/no-existe.m3u8")
+        config = escribir_config(
+            base,
+            guia,
+            f"http://127.0.0.1:{PUERTO}/{aes_playlist}",
+            f"http://127.0.0.1:{PUERTO}/no-existe.m3u8",
+        )
         data = base / "data"
         data.mkdir(exist_ok=True)
 
@@ -308,16 +361,19 @@ def main() -> int:
         afirmar(True, f"origen en http://127.0.0.1:{PUERTO}/master.m3u8")
 
         from src.config import Settings
-        from src.ingest import ingest
-        from src.normalize import normalize, aplicar_respaldos
-        from src.probe import check_channels
         from src.epg import refresh_epg
-        from src.playlist import select_for_output, write_active_outputs
+        from src.ingest import ingest
+        from src.normalize import aplicar_respaldos, normalize
+        from src.playlist import write_active_outputs
+        from src.probe import check_channels
 
         settings = Settings(
-            config_dir=str(config), data_dir=str(data),
+            config_dir=str(config),
+            data_dir=str(data),
             public_base=f"http://127.0.0.1:{PUERTO}",
-            probe_timeout_s=10.0, probe_workers=2, probe_mode="liveness",
+            probe_timeout_s=10.0,
+            probe_workers=2,
+            probe_mode="liveness",
             relay_enabled=True,
         )
         from src.ingest import load_config_file
@@ -373,11 +429,16 @@ def main() -> int:
         settings.api_token = "e2e-token"
         afirmar(cliente.post("/catalog/todos").status_code == 401, "sin token responde 401")
         afirmar(
-            cliente.post("/catalog/todos", headers={"Authorization": "Bearer e2e-token"}).status_code == 200,
+            cliente.post(
+                "/catalog/todos", headers={"Authorization": "Bearer e2e-token"}
+            ).status_code
+            == 200,
             "con token responde 200",
         )
-        afirmar(cliente.post("/catalog/pruebas", params={"token": "e2e-token"}).status_code == 200,
-                "acepta ?token=")
+        afirmar(
+            cliente.post("/catalog/pruebas", params={"token": "e2e-token"}).status_code == 200,
+            "acepta ?token=",
+        )
         settings.api_token = ""
 
         paso("Levantar la API REAL (uvicorn) para probar los flujos")
@@ -391,16 +452,23 @@ def main() -> int:
         import uvicorn
 
         servidor_api = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=PUERTO_API, log_level="error", access_log=False)
+            uvicorn.Config(
+                app, host="127.0.0.1", port=PUERTO_API, log_level="error", access_log=False
+            )
         )
         _threading.Thread(target=servidor_api.run, daemon=True).start()
         base_api = f"http://127.0.0.1:{PUERTO_API}"
-        afirmar(esperar(lambda: _http_codigo(f"{base_api}/health") == 200, limite_s=20), "la API levanto")
+        afirmar(
+            esperar(lambda: _http_codigo(f"{base_api}/health") == 200, limite_s=20),
+            "la API levanto",
+        )
 
         paso("/stream/<id>: proxy ffmpeg -c copy")
         crudo = _leer_n_bytes(f"{base_api}/stream/canal.prueba.mx", 100_000, limite_s=25)
-        afirmar(crudo is not None and crudo[:1] == b"\x47",
-                f"/stream entrega MPEG-TS ({(len(crudo) if crudo else 0)} B)")
+        afirmar(
+            crudo is not None and crudo[:1] == b"\x47",
+            f"/stream entrega MPEG-TS ({(len(crudo) if crudo else 0)} B)",
+        )
 
         paso("/relay/<id>: rele con colchon (descifra AES-128 en el camino)")
         relay = estado.relay_pool.get(
@@ -409,18 +477,24 @@ def main() -> int:
             settings.relay_user_agent,
         )
         afirmar(relay.tuvo_clientes is False, "el rele estaba precalentado (sin clientes)")
-        afirmar(esperar(lambda: relay.stats()["en_buffer"] > 0, limite_s=20), "el colchon se llena solo")
+        afirmar(
+            esperar(lambda: relay.stats()["en_buffer"] > 0, limite_s=20), "el colchon se llena solo"
+        )
         afirmar(relay.stats()["descifrados_aes"] > 0, "el rele descifro segmentos AES-128")
         descifrado = _leer_n_bytes(f"{base_api}/relay/{aes.id}", 100_000, limite_s=25)
-        afirmar(descifrado is not None and descifrado[:1] == b"\x47",
-                f"/relay entrega TS DESCIFRADO ({(len(descifrado) if descifrado else 0)} B)")
+        afirmar(
+            descifrado is not None and descifrado[:1] == b"\x47",
+            f"/relay entrega TS DESCIFRADO ({(len(descifrado) if descifrado else 0)} B)",
+        )
         afirmar(relay.tuvo_clientes is True, "el rele registro el cliente")
 
         paso("/relay/status: estado por canal")
         stats = cliente.get("/relay/status").json()
         afirmar(aes.id in stats, "el canal aparece en /relay/status")
-        afirmar("tuvo_clientes" in stats[aes.id] and "vistos" in stats[aes.id],
-                "expone la memoria acotada y el uso")
+        afirmar(
+            "tuvo_clientes" in stats[aes.id] and "vistos" in stats[aes.id],
+            "expone la memoria acotada y el uso",
+        )
         afirmar(stats[aes.id]["vistos"] <= 512, f"vistos acotado ({stats[aes.id]['vistos']})")
 
         paso("Failover: fuente principal muerta -> salta a la alternativa")
@@ -445,7 +519,9 @@ def main() -> int:
         solo_muerto = RelayHLS([muerto])
         solo_muerto.arrancar()
         try:
-            crecio = esperar(lambda: solo_muerto.stats()["espera_s"] > relay_mod.SONDEO_S, limite_s=20)
+            crecio = esperar(
+                lambda: solo_muerto.stats()["espera_s"] > relay_mod.SONDEO_S, limite_s=20
+            )
             afirmar(crecio, f"la espera crece: {solo_muerto.stats()['espera_s']}s")
         finally:
             solo_muerto.detener()

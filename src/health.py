@@ -97,16 +97,24 @@ class HealthMonitor:
                 status.last_error = probe.error or channel.disabled_reason or "inaccesible"
                 status.backoff_s = min(
                     self.settings.backoff_max_s,
-                    max(self.settings.backoff_base_s, self.settings.backoff_base_s * (2 ** (status.fails - 1))),
+                    max(
+                        self.settings.backoff_base_s,
+                        self.settings.backoff_base_s * (2 ** (status.fails - 1)),
+                    ),
                 )
                 if channel.enabled and status.fails >= self.settings.health_fails_to_disable:
                     channel.enabled = False
                     channel.disabled_reason = status.last_error
                     status.active = False
                     report.disabled += 1
-                    log.warning("canal desactivado", extra={"channel": channel.name, "detail": status.last_error})
+                    log.warning(
+                        "canal desactivado",
+                        extra={"channel": channel.name, "detail": status.last_error},
+                    )
 
-            status.next_check_at = monotonic() + (status.backoff_s or self.settings.health_interval_s)
+            status.next_check_at = monotonic() + (
+                status.backoff_s or self.settings.health_interval_s
+            )
             report.details.append(
                 {
                     "id": channel.id,
@@ -131,7 +139,10 @@ class HealthMonitor:
 
     async def run_forever(self, channels_provider) -> None:
         """Bucle de vigilancia. ``channels_provider`` devuelve la lista viva."""
-        log.info("monitor de salud iniciado", extra={"detail": f"intervalo={self.settings.health_interval_s}s"})
+        log.info(
+            "monitor de salud iniciado",
+            extra={"detail": f"intervalo={self.settings.health_interval_s}s"},
+        )
         while True:
             try:
                 channels = channels_provider()

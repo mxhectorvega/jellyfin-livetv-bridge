@@ -15,8 +15,9 @@ canales a procesar. Soporta dos origenes:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 try:  # PyYAML es la unica dependencia de parseo
     import yaml
@@ -50,7 +51,7 @@ def title_of_extinf(line: str) -> str:
         if caracter == '"':
             en_comillas = not en_comillas
         elif caracter == "," and not en_comillas:
-            return line[i + 1:].strip()
+            return line[i + 1 :].strip()
     return ""
 
 
@@ -69,7 +70,9 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
     return data
 
 
-def parse_m3u(text: str, source_name: str = "", defaults: dict[str, Any] | None = None) -> list[Channel]:
+def parse_m3u(
+    text: str, source_name: str = "", defaults: dict[str, Any] | None = None
+) -> list[Channel]:
     """Convierte el texto de una lista M3U en canales.
 
     - Discussion: el parser es tolerante: una linea ``#EXTINF`` sin atributos
@@ -95,7 +98,9 @@ def parse_m3u(text: str, source_name: str = "", defaults: dict[str, Any] | None 
         if line.startswith("#"):
             # Directivas de reproductor: se ignoran a proposito.
             continue
-        if line.lower().startswith(("http://", "https://", "rtsp://", "rtmp://", "udp://", "rtp://")):
+        if line.lower().startswith(
+            ("http://", "https://", "rtsp://", "rtmp://", "udp://", "rtp://")
+        ):
             name = (pending or {}).get("_name") or _name_from_url(line)
             attrs = pending or {}
             channels.append(
@@ -104,7 +109,9 @@ def parse_m3u(text: str, source_name: str = "", defaults: dict[str, Any] | None 
                     source_url=line,
                     tvg_id=(attrs.get("tvg-id") or "").strip(),
                     tvg_name=(attrs.get("tvg-name") or "").strip(),
-                    group=(attrs.get("group-title") or defaults.get("default_group") or "General").strip(),
+                    group=(
+                        attrs.get("group-title") or defaults.get("default_group") or "General"
+                    ).strip(),
                     logo=(attrs.get("tvg-logo") or "").strip(),
                     country=defaults.get("country", ""),
                     language=defaults.get("language", ""),
@@ -138,7 +145,9 @@ def channels_from_config(cfg: dict[str, Any]) -> list[Channel]:
     out: list[Channel] = []
     for item in cfg.get("channels") or []:
         if not isinstance(item, dict) or not item.get("url"):
-            log.warning("entrada de channels: ignorada (sin url)", extra={"detail": str(item)[:120]})
+            log.warning(
+                "entrada de channels: ignorada (sin url)", extra={"detail": str(item)[:120]}
+            )
             continue
         out.append(
             Channel(
@@ -178,10 +187,14 @@ def channels_from_sources(sources: Iterable[dict[str, Any]]) -> list[Channel]:
                 headers={str(k): str(v) for k, v in (src.get("headers") or {}).items()},
             )
         except Exception as exc:  # noqa: BLE001 — una fuente caida no debe tumbar el resto
-            log.error("no se pudo leer la fuente", extra={"channel": name, "url": url, "detail": str(exc)})
+            log.error(
+                "no se pudo leer la fuente", extra={"channel": name, "url": url, "detail": str(exc)}
+            )
             continue
         if raw[:2] == b"\x7f\x00" or raw[:1] == b"{":  # binario o JSON inesperado
-            log.warning("fuente con contenido inesperado", extra={"channel": name, "detail": raw[:40].hex()})
+            log.warning(
+                "fuente con contenido inesperado", extra={"channel": name, "detail": raw[:40].hex()}
+            )
         defaults = {
             "name": name,
             "country": src.get("country", ""),

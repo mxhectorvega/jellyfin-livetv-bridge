@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
 
 import pytest
-
 from src.config import Settings
 from src.ingest import (
     channels_from_config,
@@ -16,18 +14,17 @@ from src.ingest import (
     parse_m3u,
 )
 
-M3U = textwrap.dedent(
-    """
-    #EXTM3U
-    #EXTINF:-1 tvg-id="uno.mx" tvg-name="Canal Uno HD" tvg-logo="https://x.invalid/1.png" group-title="Nacionales",Canal Uno (720p)
-    https://example.invalid/uno/master.m3u8
-    #EXTINF:-1 group-title="Deportes",Canal Dos FHD
-    https://example.invalid/dos/index.m3u8
-    #EXTVLCOPT:http-user-agent=VLC
-    #EXTINF:-1,Canal Tres
-    https://example.invalid/tres.ts
-    """
-).strip()
+M3U = (
+    "#EXTM3U\n"
+    '#EXTINF:-1 tvg-id="uno.mx" tvg-name="Canal Uno HD" '
+    'tvg-logo="https://x.invalid/1.png" group-title="Nacionales",Canal Uno (720p)\n'
+    "https://example.invalid/uno/master.m3u8\n"
+    '#EXTINF:-1 group-title="Deportes",Canal Dos FHD\n'
+    "https://example.invalid/dos/index.m3u8\n"
+    "#EXTVLCOPT:http-user-agent=VLC\n"
+    "#EXTINF:-1,Canal Tres\n"
+    "https://example.invalid/tres.ts"
+)
 
 
 def test_parse_m3u_lee_atributos_y_nombre():
@@ -89,8 +86,13 @@ def test_channels_from_config_ignora_entradas_sin_url():
 
 def test_channels_from_sources_soporta_archivo_local(monkeypatch, tmp_path: Path):
     lista = tmp_path / "lista.m3u"
-    lista.write_text("#EXTM3U\n#EXTINF:-1 tvg-id=\"a.mx\",Canal A\nhttps://example.invalid/a.m3u8\n", encoding="utf-8")
-    canales = channels_from_sources([{"name": "local", "url": str(lista), "default_group": "Local"}])
+    lista.write_text(
+        '#EXTM3U\n#EXTINF:-1 tvg-id="a.mx",Canal A\nhttps://example.invalid/a.m3u8\n',
+        encoding="utf-8",
+    )
+    canales = channels_from_sources(
+        [{"name": "local", "url": str(lista), "default_group": "Local"}]
+    )
     assert len(canales) == 1
     assert canales[0].group == "Local"
     assert canales[0].source == "local"
@@ -98,7 +100,9 @@ def test_channels_from_sources_soporta_archivo_local(monkeypatch, tmp_path: Path
 
 def test_channels_from_sources_una_fuente_caida_no_tumba_el_resto(monkeypatch, tmp_path: Path):
     buena = tmp_path / "b.m3u"
-    buena.write_text("#EXTM3U\n#EXTINF:-1,Canal B\nhttps://example.invalid/b.m3u8\n", encoding="utf-8")
+    buena.write_text(
+        "#EXTM3U\n#EXTINF:-1,Canal B\nhttps://example.invalid/b.m3u8\n", encoding="utf-8"
+    )
     canales = channels_from_sources(
         [
             {"name": "caida", "url": "https://example.invalid/no-existe.m3u"},
@@ -110,7 +114,9 @@ def test_channels_from_sources_una_fuente_caida_no_tumba_el_resto(monkeypatch, t
 
 def test_ingest_prioriza_canales_explicitos(settings: Settings):
     cfg = {
-        "channels": [{"name": "Explicito", "url": "https://example.invalid/e.m3u8", "tvg_id": "dup.mx"}],
+        "channels": [
+            {"name": "Explicito", "url": "https://example.invalid/e.m3u8", "tvg_id": "dup.mx"}
+        ],
         "sources": [],
     }
     canales = ingest(settings, cfg)

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from fastapi.testclient import TestClient
-
 from src.api import AppState, create_app
 from src.config import Settings
 from src.health import HealthMonitor
@@ -22,7 +19,9 @@ def _state(settings: Settings) -> AppState:
         tvg_id="uno.mx",
         group="Demo",
         source_url="https://example.invalid/u.m3u8",
-        probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac", resolution="1280x720"),
+        probe=ProbeResult(
+            accessible=True, video_codec="h264", audio_codec="aac", resolution="1280x720"
+        ),
     )
     state.put_channels([canal])
     return state
@@ -62,11 +61,33 @@ def test_stream_404_canal_desconocido(settings: Settings):
     assert client.get("/stream/no-existe").status_code == 404
 
 
-def test_stream_451_si_protegido(settings: Settings):
+def test_stream_403_si_protegido(settings: Settings):
+    """403, no 451: 451 es para restriccion LEGAL, no para algo irreproducible."""
     state = _state(settings)
     state.channels["uno.mx"].probe.drm = True
     client = TestClient(create_app(state))
-    assert client.get("/stream/uno.mx").status_code == 451
+    assert client.get("/stream/uno.mx").status_code == 403
+
+
+def test_playlist_es_mpegurl_y_no_se_cachea(settings: Settings):
+    """RFC 8216 §4 admite `audio/mpegurl` o `application/vnd.apple.mpegurl`."""
+    client = TestClient(create_app(_state(settings)))
+    r = client.get("/playlist.m3u")
+    assert r.headers["content-type"].startswith("audio/mpegurl")
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_las_rutas_de_archivo_contestan_head(settings: Settings):
+    """Una ruta GET no atiende HEAD: devolvia 405 y eso se lee como caida."""
+    state = _state(settings)
+    estado = AppState(settings=settings)
+    estado.monitor = HealthMonitor(settings)
+    estado.put_channels(list(state.channels.values()))
+    estado.settings.epg_file.write_text('<?xml version="1.0"?><tv/>', encoding="utf-8")
+    client = TestClient(create_app(estado))
+    assert client.head("/playlist.m3u").status_code == 200
+    assert client.head("/playlist.m3u").headers["content-type"].startswith("audio/mpegurl")
+    assert client.head("/epg.xml").status_code == 200
 
 
 def test_reload_sin_pipeline_enlazado(settings: Settings):
@@ -75,7 +96,11 @@ def test_reload_sin_pipeline_enlazado(settings: Settings):
 
 
 def test_plan_copy_cuando_codecs_compatibles(settings: Settings):
-    ch = Channel(name="A", source_url="u", probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"))
+    ch = Channel(
+        name="A",
+        source_url="u",
+        probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
+    )
     plan = plan_for(ch, settings)
     assert plan.is_copy is True
     cmd = build_ffmpeg_cmd(ch.source_url, plan, settings)
@@ -85,7 +110,11 @@ def test_plan_copy_cuando_codecs_compatibles(settings: Settings):
 
 def test_plan_transcodifica_hevc_y_ac3(settings: Settings):
     settings.hwaccel = "off"  # fuerza decision sin GPU
-    ch = Channel(name="A", source_url="u", probe=ProbeResult(accessible=True, video_codec="hevc", audio_codec="ac3"))
+    ch = Channel(
+        name="A",
+        source_url="u",
+        probe=ProbeResult(accessible=True, video_codec="hevc", audio_codec="ac3"),
+    )
     plan = plan_for(ch, settings)
     # Con hwaccel=off el plan siempre es copia (por diseno).
     assert plan.is_copy is True
@@ -93,7 +122,12 @@ def test_plan_transcodifica_hevc_y_ac3(settings: Settings):
 
 def test_plan_perfil_h264_forzado(settings: Settings):
     settings.hwaccel = "cpu"
-    ch = Channel(name="A", source_url="u", profile="h264", probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"))
+    ch = Channel(
+        name="A",
+        source_url="u",
+        profile="h264",
+        probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
+    )
     plan = plan_for(ch, settings)
     assert plan.copy_video is False
     assert plan.copy_audio is True

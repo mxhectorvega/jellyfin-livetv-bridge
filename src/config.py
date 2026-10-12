@@ -15,9 +15,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # --------------------------------------------------------------------------
 # Valores de fabrica. Medidos en produccion cuando aplica; si no, el candidato
@@ -27,19 +28,19 @@ DEFAULT_CONFIG_DIR = "/config"
 DEFAULT_DATA_DIR = "/data"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8581
-DEFAULT_PUBLIC_BASE = ""          # vacio => se deduce de la peticion
+DEFAULT_PUBLIC_BASE = ""  # vacio => se deduce de la peticion
 DEFAULT_PROBE_TIMEOUT_S = 10.0
 # 2, no 6: medido contra el CDN de Pluto, la concurrencia alta hace que el CDN
 # devuelva manifiestos VACIOS (1/12 con 6 hilos contra 22/24 con 2). Un barrido
 # con hilos de mas no es un barrido mas rapido, es un barrido que miente.
 DEFAULT_PROBE_WORKERS = 2
-DEFAULT_PROBE_MODE = "liveness"   # liveness | ffprobe
+DEFAULT_PROBE_MODE = "liveness"  # liveness | ffprobe
 DEFAULT_INCLUDE_PROTECTED = True
 DEFAULT_PLAYLIST_NAME = "playlist.m3u"
 DEFAULT_EPG_NAME = "epg.xml"
-DEFAULT_HWACCEL = "auto"          # auto | vaapi | qsv | cpu | off
+DEFAULT_HWACCEL = "auto"  # auto | vaapi | qsv | cpu | off
 DEFAULT_MAX_TRANSCODES = 2
-DEFAULT_RELAY_ENABLED = False     # el rele convive con /stream; se activa a proposito
+DEFAULT_RELAY_ENABLED = False  # el rele convive con /stream; se activa a proposito
 # Sin User-Agent explicito por omision: mdstrm (TV Azteca) responde 403 a los
 # UA de navegador en sus segmentos (medido 2026-10-11) y los otros 9 nacionales
 # funcionan igual con o sin UA. Cuando entre Pluto habra que darle el suyo.
@@ -50,7 +51,7 @@ DEFAULT_HEALTH_OKS = 2
 DEFAULT_BACKOFF_BASE_S = 5.0
 DEFAULT_BACKOFF_MAX_S = 120.0
 DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_LOG_FORMAT = "json"       # json | text
+DEFAULT_LOG_FORMAT = "json"  # json | text
 
 
 def _warn(msg: str) -> None:
@@ -81,8 +82,9 @@ def _parse(raw: Any, caster: Callable[[Any], Any], default: Any, name: str) -> A
         return default
 
 
-def _range(raw: Any, caster: Callable[[Any], Any], default: Any, name: str,
-           minimo: float, maximo: float) -> Any:
+def _range(
+    raw: Any, caster: Callable[[Any], Any], default: Any, name: str, minimo: float, maximo: float
+) -> Any:
     """Como :func:`_parse` pero ademas exige un RANGO utilizable.
 
     - Discussion: validar el tipo no basta. Medido: ``LVB_PORT=99999`` es un
@@ -95,8 +97,10 @@ def _range(raw: Any, caster: Callable[[Any], Any], default: Any, name: str,
     """
     valor = _parse(raw, caster, default, name)
     if valor < minimo or valor > maximo:
-        _warn(f"{name}={valor!r} fuera de rango [{minimo}, {maximo}]; "
-              f"se usa el valor por omision {default!r}")
+        _warn(
+            f"{name}={valor!r} fuera de rango [{minimo}, {maximo}]; "
+            f"se usa el valor por omision {default!r}"
+        )
         return default
     return valor
 
@@ -245,7 +249,7 @@ class Settings:
     # Construccion
     # ------------------------------------------------------------------
     @classmethod
-    def from_env(cls, overrides: dict[str, Any] | None = None) -> "Settings":
+    def from_env(cls, overrides: dict[str, Any] | None = None) -> Settings:
         """Lee el entorno y aplica ``overrides`` (bloque settings de sources.yml)."""
         env = os.environ
         overrides = {k: v for k, v in (overrides or {}).items() if v is not None}
@@ -255,35 +259,178 @@ class Settings:
             config_dir=str(get("config_dir", _env_str("LVB_CONFIG_DIR", DEFAULT_CONFIG_DIR))),
             data_dir=str(get("data_dir", _env_str("LVB_DATA_DIR", DEFAULT_DATA_DIR))),
             host=str(get("host", _env_str("LVB_HOST", DEFAULT_HOST))),
-            port=_range(get("port", _env_str("LVB_PORT", str(DEFAULT_PORT))), int, DEFAULT_PORT, "port", 1, 65535),
-            public_base=str(get("public_base", _env_str("LVB_PUBLIC_BASE", DEFAULT_PUBLIC_BASE))).rstrip("/"),
-            probe_timeout_s=_range(get("probe_timeout_s", _env_str("LVB_PROBE_TIMEOUT_S", str(DEFAULT_PROBE_TIMEOUT_S))), float, DEFAULT_PROBE_TIMEOUT_S, "probe_timeout_s", 1.0, 600.0),
-            probe_workers=_range(get("probe_workers", _env_str("LVB_PROBE_WORKERS", str(DEFAULT_PROBE_WORKERS))), int, DEFAULT_PROBE_WORKERS, "probe_workers", 1, 64),
-            probe_mode=str(get("probe_mode", _env_str("LVB_PROBE_MODE", DEFAULT_PROBE_MODE))).strip().lower(),
-            include_protected=_parse(get("include_protected", _env_str("LVB_INCLUDE_PROTECTED", str(DEFAULT_INCLUDE_PROTECTED))), _to_bool, DEFAULT_INCLUDE_PROTECTED, "include_protected"),
-            playlist_name=str(get("playlist_name", _env_str("LVB_PLAYLIST_NAME", DEFAULT_PLAYLIST_NAME))),
+            port=_range(
+                get("port", _env_str("LVB_PORT", str(DEFAULT_PORT))),
+                int,
+                DEFAULT_PORT,
+                "port",
+                1,
+                65535,
+            ),
+            public_base=str(
+                get("public_base", _env_str("LVB_PUBLIC_BASE", DEFAULT_PUBLIC_BASE))
+            ).rstrip("/"),
+            probe_timeout_s=_range(
+                get(
+                    "probe_timeout_s", _env_str("LVB_PROBE_TIMEOUT_S", str(DEFAULT_PROBE_TIMEOUT_S))
+                ),
+                float,
+                DEFAULT_PROBE_TIMEOUT_S,
+                "probe_timeout_s",
+                1.0,
+                600.0,
+            ),
+            probe_workers=_range(
+                get("probe_workers", _env_str("LVB_PROBE_WORKERS", str(DEFAULT_PROBE_WORKERS))),
+                int,
+                DEFAULT_PROBE_WORKERS,
+                "probe_workers",
+                1,
+                64,
+            ),
+            probe_mode=str(get("probe_mode", _env_str("LVB_PROBE_MODE", DEFAULT_PROBE_MODE)))
+            .strip()
+            .lower(),
+            include_protected=_parse(
+                get(
+                    "include_protected",
+                    _env_str("LVB_INCLUDE_PROTECTED", str(DEFAULT_INCLUDE_PROTECTED)),
+                ),
+                _to_bool,
+                DEFAULT_INCLUDE_PROTECTED,
+                "include_protected",
+            ),
+            playlist_name=str(
+                get("playlist_name", _env_str("LVB_PLAYLIST_NAME", DEFAULT_PLAYLIST_NAME))
+            ),
             epg_name=str(get("epg_name", _env_str("LVB_EPG_NAME", DEFAULT_EPG_NAME))),
-            active_catalog=str(get("active_catalog", _env_str("LVB_ACTIVE_CATALOG", ""))).strip().lower(),
+            active_catalog=str(get("active_catalog", _env_str("LVB_ACTIVE_CATALOG", "")))
+            .strip()
+            .lower(),
             hwaccel=str(get("hwaccel", _env_str("LVB_HWACCEL", DEFAULT_HWACCEL))).strip().lower(),
-            max_transcodes=_range(get("max_transcodes", _env_str("LVB_MAX_TRANSCODES", str(DEFAULT_MAX_TRANSCODES))), int, DEFAULT_MAX_TRANSCODES, "max_transcodes", 0, 64),
-            relay_enabled=_parse(get("relay_enabled", _env_str("LVB_RELAY_ENABLED", str(DEFAULT_RELAY_ENABLED))), _to_bool, DEFAULT_RELAY_ENABLED, "relay_enabled"),
-            relay_user_agent=str(get("relay_user_agent", _env_str("LVB_RELAY_USER_AGENT", DEFAULT_RELAY_UA))),
-            relay_remendar=_parse(get("relay_remendar", _env_str("LVB_RELAY_REMENDAR", str(True))), _to_bool, True, "relay_remendar"),
-            relay_paso_cuadro=_range(get("relay_paso_cuadro", _env_str("LVB_RELAY_PASO_CUADRO", "3003")), int, 3003, "relay_paso_cuadro", 1, 90000),
+            max_transcodes=_range(
+                get("max_transcodes", _env_str("LVB_MAX_TRANSCODES", str(DEFAULT_MAX_TRANSCODES))),
+                int,
+                DEFAULT_MAX_TRANSCODES,
+                "max_transcodes",
+                0,
+                64,
+            ),
+            relay_enabled=_parse(
+                get("relay_enabled", _env_str("LVB_RELAY_ENABLED", str(DEFAULT_RELAY_ENABLED))),
+                _to_bool,
+                DEFAULT_RELAY_ENABLED,
+                "relay_enabled",
+            ),
+            relay_user_agent=str(
+                get("relay_user_agent", _env_str("LVB_RELAY_USER_AGENT", DEFAULT_RELAY_UA))
+            ),
+            relay_remendar=_parse(
+                get("relay_remendar", _env_str("LVB_RELAY_REMENDAR", str(True))),
+                _to_bool,
+                True,
+                "relay_remendar",
+            ),
+            relay_paso_cuadro=_range(
+                get("relay_paso_cuadro", _env_str("LVB_RELAY_PASO_CUADRO", "3003")),
+                int,
+                3003,
+                "relay_paso_cuadro",
+                1,
+                90000,
+            ),
             bind_ip=str(get("bind_ip", _env_str("LVB_BIND_IP", ""))).strip(),
             api_token=str(get("api_token", _env_str("LVB_API_TOKEN", ""))).strip(),
-            relay_precalentar=_parse(get("relay_precalentar", _env_str("LVB_RELAY_PRECALENTAR", str(True))), _to_bool, True, "relay_precalentar"),
-            relay_precalentar_max=_range(get("relay_precalentar_max", _env_str("LVB_RELAY_PRECALENTAR_MAX", "16")), int, 16, "relay_precalentar_max", 0, 4096),
-            relay_idle_s=_range(get("relay_idle_s", _env_str("LVB_RELAY_IDLE_S", "900")), float, 900.0, "relay_idle_s", 0.0, 86400.0),
-            health_interval_s=_range(get("health_interval_s", _env_str("LVB_HEALTH_INTERVAL_S", str(DEFAULT_HEALTH_INTERVAL_S))), float, DEFAULT_HEALTH_INTERVAL_S, "health_interval_s", 5.0, 86400.0),
-            health_fails_to_disable=_range(get("health_fails_to_disable", _env_str("LVB_HEALTH_FAILS_TO_DISABLE", str(DEFAULT_HEALTH_FAILS))), int, DEFAULT_HEALTH_FAILS, "health_fails_to_disable", 1, 100),
-            health_oks_to_enable=_range(get("health_oks_to_enable", _env_str("LVB_HEALTH_OKS_TO_ENABLE", str(DEFAULT_HEALTH_OKS))), int, DEFAULT_HEALTH_OKS, "health_oks_to_enable", 1, 100),
-            backoff_base_s=_range(get("backoff_base_s", _env_str("LVB_HEALTH_BACKOFF_BASE_S", str(DEFAULT_BACKOFF_BASE_S))), float, DEFAULT_BACKOFF_BASE_S, "backoff_base_s", 0.1, 3600.0),
-            backoff_max_s=_range(get("backoff_max_s", _env_str("LVB_HEALTH_BACKOFF_MAX_S", str(DEFAULT_BACKOFF_MAX_S))), float, DEFAULT_BACKOFF_MAX_S, "backoff_max_s", 0.1, 86400.0),
+            relay_precalentar=_parse(
+                get("relay_precalentar", _env_str("LVB_RELAY_PRECALENTAR", str(True))),
+                _to_bool,
+                True,
+                "relay_precalentar",
+            ),
+            relay_precalentar_max=_range(
+                get("relay_precalentar_max", _env_str("LVB_RELAY_PRECALENTAR_MAX", "16")),
+                int,
+                16,
+                "relay_precalentar_max",
+                0,
+                4096,
+            ),
+            relay_idle_s=_range(
+                get("relay_idle_s", _env_str("LVB_RELAY_IDLE_S", "900")),
+                float,
+                900.0,
+                "relay_idle_s",
+                0.0,
+                86400.0,
+            ),
+            health_interval_s=_range(
+                get(
+                    "health_interval_s",
+                    _env_str("LVB_HEALTH_INTERVAL_S", str(DEFAULT_HEALTH_INTERVAL_S)),
+                ),
+                float,
+                DEFAULT_HEALTH_INTERVAL_S,
+                "health_interval_s",
+                5.0,
+                86400.0,
+            ),
+            health_fails_to_disable=_range(
+                get(
+                    "health_fails_to_disable",
+                    _env_str("LVB_HEALTH_FAILS_TO_DISABLE", str(DEFAULT_HEALTH_FAILS)),
+                ),
+                int,
+                DEFAULT_HEALTH_FAILS,
+                "health_fails_to_disable",
+                1,
+                100,
+            ),
+            health_oks_to_enable=_range(
+                get(
+                    "health_oks_to_enable",
+                    _env_str("LVB_HEALTH_OKS_TO_ENABLE", str(DEFAULT_HEALTH_OKS)),
+                ),
+                int,
+                DEFAULT_HEALTH_OKS,
+                "health_oks_to_enable",
+                1,
+                100,
+            ),
+            backoff_base_s=_range(
+                get(
+                    "backoff_base_s",
+                    _env_str("LVB_HEALTH_BACKOFF_BASE_S", str(DEFAULT_BACKOFF_BASE_S)),
+                ),
+                float,
+                DEFAULT_BACKOFF_BASE_S,
+                "backoff_base_s",
+                0.1,
+                3600.0,
+            ),
+            backoff_max_s=_range(
+                get(
+                    "backoff_max_s",
+                    _env_str("LVB_HEALTH_BACKOFF_MAX_S", str(DEFAULT_BACKOFF_MAX_S)),
+                ),
+                float,
+                DEFAULT_BACKOFF_MAX_S,
+                "backoff_max_s",
+                0.1,
+                86400.0,
+            ),
             log_level=str(get("log_level", _env_str("LVB_LOG_LEVEL", DEFAULT_LOG_LEVEL))).upper(),
-            log_format=str(get("log_format", _env_str("LVB_LOG_FORMAT", DEFAULT_LOG_FORMAT))).strip().lower(),
-            azteca_enabled=_parse(get("azteca_enabled", _env_str("LVB_AZTECA_ENABLED", str(True))), _to_bool, True, "azteca_enabled"),
-            azteca_local_base=str(get("azteca_local_base", _env_str("LVB_AZTECA_BASE", "http://127.0.0.1:8582"))).rstrip("/"),
+            log_format=str(get("log_format", _env_str("LVB_LOG_FORMAT", DEFAULT_LOG_FORMAT)))
+            .strip()
+            .lower(),
+            azteca_enabled=_parse(
+                get("azteca_enabled", _env_str("LVB_AZTECA_ENABLED", str(True))),
+                _to_bool,
+                True,
+                "azteca_enabled",
+            ),
+            azteca_local_base=str(
+                get("azteca_local_base", _env_str("LVB_AZTECA_BASE", "http://127.0.0.1:8582"))
+            ).rstrip("/"),
             strip_patterns=list(get("strip_patterns", []) or []),
             group_exclude=list(get("group_exclude", []) or []),
         )

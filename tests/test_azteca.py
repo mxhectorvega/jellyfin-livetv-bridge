@@ -6,7 +6,6 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src import azteca
 from src.api import AppState, create_app
 from src.config import Settings
@@ -38,8 +37,13 @@ class _RespuestaFalsa:
 
 
 def test_clave_de_url_reconoce_el_proveedor_local():
-    assert azteca.clave_de_url("http://127.0.0.1:8582/azteca7", "http://127.0.0.1:8582") == "azteca7"
-    assert azteca.clave_de_url("http://127.0.0.1:8582/azteca-intl", "http://127.0.0.1:8582") == "azteca-intl"
+    assert (
+        azteca.clave_de_url("http://127.0.0.1:8582/azteca7", "http://127.0.0.1:8582") == "azteca7"
+    )
+    assert (
+        azteca.clave_de_url("http://127.0.0.1:8582/azteca-intl", "http://127.0.0.1:8582")
+        == "azteca-intl"
+    )
     assert azteca.clave_de_url("https://otro.invalid/x.m3u8", "http://127.0.0.1:8582") is None
     assert azteca.clave_de_url("http://127.0.0.1:8582/desconocido", "http://127.0.0.1:8582") is None
     assert azteca.clave_de_url("", "http://127.0.0.1:8582") is None
@@ -64,13 +68,17 @@ def test_resolver_url_pide_token_y_arma_el_master(monkeypatch):
 
 
 def test_reescribir_url_sin_clave_no_toca(monkeypatch):
-    monkeypatch.setattr(azteca.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no debe pedir token"))
+    monkeypatch.setattr(
+        azteca.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no debe pedir token")
+    )
     original = "https://ejemplo.invalid/canal/master.m3u8"
     assert azteca.reescribir_url(original, "http://127.0.0.1:8582") == original
 
 
 def test_reescribir_url_deshabilitado_no_resuelve(monkeypatch):
-    monkeypatch.setattr(azteca.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no debe pedir token"))
+    monkeypatch.setattr(
+        azteca.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no debe pedir token")
+    )
     original = "http://127.0.0.1:8582/azteca7"
     assert azteca.reescribir_url(original, "http://127.0.0.1:8582", habilitado=False) == original
 
@@ -119,7 +127,9 @@ def test_check_stream_resuelve_la_url_del_canal(monkeypatch, settings: Settings)
     from src import probe as probe_mod
 
     monkeypatch.setattr(probe_mod, "_descender", fake_descender)
-    probe_mod.check_stream("http://127.0.0.1:8582/azteca7", timeout=1, mode="liveness", settings=settings)
+    probe_mod.check_stream(
+        "http://127.0.0.1:8582/azteca7", timeout=1, mode="liveness", settings=settings
+    )
     assert "access_token=XYZ" in visto["url"]
 
 

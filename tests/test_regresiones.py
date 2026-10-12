@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src import probe as probe_mod
 from src.api import AppState, create_app
 from src.config import Settings
@@ -51,11 +50,10 @@ def test_parse_time_respeta_el_offset():
 
 def test_parse_time_convierte_al_instante_correcto():
     """La hora local con offset tiene que caer en el UTC que le toca."""
-    from datetime import timezone
 
     dt = _parse_time("20261011200000 -0600")
     assert dt is not None
-    assert dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M") == "2026-10-12 02:00"
+    assert dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M") == "2026-10-12 02:00"
 
 
 def test_parse_time_rechaza_basura():
@@ -157,7 +155,7 @@ def test_vistos_es_un_lru_acotado():
         with r._lock:
             r._recordar_visto(f"http://x/{i}.ts")
     assert len(r._vistos) == MAX_VISTOS
-    assert "http://x/0.ts" not in r._vistos          # lo viejo se suelta
+    assert "http://x/0.ts" not in r._vistos  # lo viejo se suelta
     assert f"http://x/{MAX_VISTOS * 3 - 1}.ts" in r._vistos
 
 
@@ -310,16 +308,18 @@ def test_check_all_con_lista_vacia_no_hace_nada(settings: Settings):
 def _state(settings: Settings) -> AppState:
     state = AppState(settings=settings)
     state.monitor = HealthMonitor(settings)
-    state.put_channels([
-        Channel(
-            id="uno.mx",
-            name="Canal Uno",
-            tvg_id="uno.mx",
-            group="Demo",
-            source_url="https://example.invalid/u.m3u8",
-            probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
-        )
-    ])
+    state.put_channels(
+        [
+            Channel(
+                id="uno.mx",
+                name="Canal Uno",
+                tvg_id="uno.mx",
+                group="Demo",
+                source_url="https://example.invalid/u.m3u8",
+                probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
+            )
+        ]
+    )
     return state
 
 
@@ -328,8 +328,12 @@ def test_post_protegido_cuando_hay_token(settings: Settings):
     client = TestClient(create_app(_state(settings)))
     assert client.post("/catalog/todos").status_code == 401
     assert client.post("/reload").status_code == 401
-    assert client.post("/catalog/todos", headers={"Authorization": "Bearer nope"}).status_code == 401
-    assert client.post("/catalog/todos", headers={"Authorization": "Bearer abc123"}).status_code == 200
+    assert (
+        client.post("/catalog/todos", headers={"Authorization": "Bearer nope"}).status_code == 401
+    )
+    assert (
+        client.post("/catalog/todos", headers={"Authorization": "Bearer abc123"}).status_code == 200
+    )
     assert client.post("/catalog/todos", params={"token": "abc123"}).status_code == 200
 
 
@@ -345,7 +349,7 @@ def test_get_sigue_abierto_con_token(settings: Settings):
 def test_sin_token_configurado_todo_pasa(settings: Settings):
     settings.api_token = ""
     client = TestClient(create_app(_state(settings)))
-    assert client.post("/reload").status_code == 503   # sin pipeline enlazado, no 401
+    assert client.post("/reload").status_code == 503  # sin pipeline enlazado, no 401
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +361,7 @@ def test_title_of_extinf_corta_en_la_ultima_coma_fuera_de_comillas():
     Medido con ``tvg-name="Canal, Uno"``: el nombre salia
     ``'Uno" group-title="G",Canal Uno'``.
     """
-    linea = ('#EXTINF:-1 tvg-id="a.mx" tvg-name="Canal, Uno" '
-             'group-title="News, Weather",Canal Uno')
+    linea = '#EXTINF:-1 tvg-id="a.mx" tvg-name="Canal, Uno" group-title="News, Weather",Canal Uno'
     assert title_of_extinf(linea) == "Canal Uno"
     canales = parse_m3u("#EXTM3U\n" + linea + "\nhttp://x/1.m3u8\n")
     assert canales[0].name == "Canal Uno"
@@ -396,23 +399,32 @@ def test_plan_codecs_desconocidos_no_se_copian(settings: Settings):
     """Antes, lista negra: vc1/theora/vp8 salian por ``-c copy`` a mpegts."""
     settings.hwaccel = "cpu"
     for codec in ("vc1", "theora", "vp8", "hevc", "mpeg2video"):
-        ch = Channel(name="A", source_url="u",
-                     probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"))
+        ch = Channel(
+            name="A",
+            source_url="u",
+            probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"),
+        )
         assert plan_for(ch, settings).copy_video is False, codec
 
 
 def test_plan_h264_y_avc1_siguen_copiando(settings: Settings):
     settings.hwaccel = "cpu"
     for codec in ("h264", "avc1"):
-        ch = Channel(name="A", source_url="u",
-                     probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"))
+        ch = Channel(
+            name="A",
+            source_url="u",
+            probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"),
+        )
         assert plan_for(ch, settings).copy_video is True, codec
 
 
 def test_plan_audio_desconocido_no_se_copia(settings: Settings):
     settings.hwaccel = "cpu"
-    ch = Channel(name="A", source_url="u",
-                 probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="opus"))
+    ch = Channel(
+        name="A",
+        source_url="u",
+        probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="opus"),
+    )
     plan = plan_for(ch, settings)
     assert plan.copy_video is True and plan.copy_audio is False
 
@@ -448,24 +460,26 @@ def test_valor_valido_en_rango_no_se_toca(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_parse_xmltv_rechaza_entidades_internas():
     """Medido: ~250 B de entrada expandian a 10,000 caracteres."""
-    bomba = ('<?xml version="1.0"?><!DOCTYPE tv [<!ENTITY a "AAAAAAAAAA">'
-             '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
-             '<tv><channel id="x"><display-name>&b;</display-name></channel></tv>')
+    bomba = (
+        '<?xml version="1.0"?><!DOCTYPE tv [<!ENTITY a "AAAAAAAAAA">'
+        '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+        '<tv><channel id="x"><display-name>&b;</display-name></channel></tv>'
+    )
     with pytest.raises(ValueError):
         parse_xmltv(bomba.encode())
 
 
 def test_parse_xmltv_acepta_el_doctype_normal():
     """El DOCTYPE que apunta al DTD es legitimo y NO se bloquea."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    ahora = datetime.now(timezone.utc) + timedelta(hours=1)
+    ahora = datetime.now(UTC) + timedelta(hours=1)
     sello = ahora.strftime("%Y%m%d%H%M%S")
     documento = (
         '<?xml version="1.0"?><!DOCTYPE tv SYSTEM "xmltv.dtd">'
         '<tv><channel id="uno.mx"><display-name>Uno</display-name></channel>'
         f'<programme start="{sello} +0000" stop="{sello} +0000" channel="uno.mx">'
-        '<title>Prueba</title></programme></tv>'
+        "<title>Prueba</title></programme></tv>"
     )
     bundle = parse_xmltv(documento.encode())
     assert "uno.mx" in bundle.channels
@@ -494,7 +508,9 @@ def test_gunzip_acotado_corta_la_expansion():
 # ---------------------------------------------------------------------------
 def test_channels_no_expone_source_url(settings: Settings):
     ch = Channel(
-        id="uno.mx", name="Canal Uno", tvg_id="uno.mx",
+        id="uno.mx",
+        name="Canal Uno",
+        tvg_id="uno.mx",
         source_url="http://origen.invalid/con-token-secreto.m3u8",
         probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
     )
@@ -512,17 +528,19 @@ def test_channels_no_expone_source_url(settings: Settings):
 # ---------------------------------------------------------------------------
 # RELE: empalme de la linea de tiempo al cambiar de fuente (2026-10-12)
 # ---------------------------------------------------------------------------
-def _segmento_ts(pts_inicial: int, cuadros: int = 3, paso: int = 3003,
-                 pid: int = 0x1E1) -> bytes:
+def _segmento_ts(pts_inicial: int, cuadros: int = 3, paso: int = 3003, pid: int = 0x1E1) -> bytes:
     """Segmento sintetico: N paquetes PES con PTS creciente."""
     salida = bytearray()
     for k in range(cuadros):
         opc = bytearray(5)
         escribir_sello(opc, 0, pts_inicial + k * paso, 0b0010)
-        cuerpo = (bytes([0x00, 0x00, 0x01, 0xE0, 0x00, 0x00, 0x80, 0x80, 0x05])
-                  + bytes(opc) + b"VIDEO" * 4)
+        cuerpo = (
+            bytes([0x00, 0x00, 0x01, 0xE0, 0x00, 0x00, 0x80, 0x80, 0x05])
+            + bytes(opc)
+            + b"VIDEO" * 4
+        )
         pkt = bytearray([0x47, 0x40 | ((pid >> 8) & 0x1F), pid & 0xFF, 0x10]) + cuerpo
-        pkt += b"\xFF" * (188 - len(pkt))
+        pkt += b"\xff" * (188 - len(pkt))
         salida += pkt
     return bytes(salida)
 
@@ -541,7 +559,7 @@ def test_rele_empalma_la_linea_al_cambiar_de_fuente():
     r._remendar(_segmento_ts(100_000))
     ultimo_a = r._rem.ultimo_pts_emitido
     assert ultimo_a is not None
-    r._indice = 1                                   # el rele salto de fuente
+    r._indice = 1  # el rele salto de fuente
     salida = r._remendar(_segmento_ts(9_000_000))
     assert r._remiendos == 1
     assert primer_pts(salida) == (ultimo_a + r.paso_cuadro) % MOD
@@ -588,6 +606,40 @@ def test_rele_el_lector_no_espera_sin_clientes():
     inicio = time.monotonic()
     r._esperar_hueco(max_s=5.0)
     assert time.monotonic() - inicio < 0.05, "no debio esperar sin clientes"
+
+
+def test_validar_xmltv_rechaza_programa_sin_titulo():
+    """El DTD pide title+ y start REQUIRED: sin eso el archivo no valida."""
+    import xml.etree.ElementTree as ET
+
+    from src.epg import validar_xmltv
+
+    root = ET.fromstring(
+        '<tv><channel id="a"><display-name>A</display-name></channel>'
+        '<programme start="20260101120000 +0000" channel="a"/></tv>'
+    )
+    with pytest.raises(ValueError):
+        validar_xmltv(root)
+
+
+def test_validar_xmltv_acepta_lo_que_el_dtd_permite():
+    """`stop` es #IMPLIED (opcional) y no debe contar como falta."""
+    import xml.etree.ElementTree as ET
+
+    from src.epg import validar_xmltv
+
+    root = ET.fromstring(
+        '<tv><channel id="a"><display-name>A</display-name></channel>'
+        '<programme start="20260101120000 +0000" channel="a">'
+        "<title>Algo</title></programme></tv>"
+    )
+    conteo = validar_xmltv(root)
+    assert conteo == {
+        "canales": 1,
+        "programas": 1,
+        "programas_invalidos": 0,
+        "programas_sin_canal": 0,
+    }
 
 
 def test_rele_el_empalme_se_encadena():

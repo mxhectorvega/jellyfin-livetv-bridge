@@ -33,12 +33,12 @@ PID_VIDEO = 0x1E1
 # ---------------------------------------------------------------------------
 def pkt_pcr(pid: int, base: int, ext: int = 0, disc: int = 0) -> bytearray:
     """Paquete con SOLO campo de adaptacion (afc=2) y PCR."""
-    af = bytearray([0x10 | (disc << 7)])          # PCR_flag (+ discontinuity)
+    af = bytearray([0x10 | (disc << 7)])  # PCR_flag (+ discontinuity)
     seis = bytearray(6)
     escribir_pcr(seis, 0, base, ext)
     af += seis
     relleno = 183 - len(af)
-    af += b"\xFF" * relleno
+    af += b"\xff" * relleno
     pkt = bytearray([0x47, (pid >> 8) & 0x1F, pid & 0xFF, 0x20])
     pkt += bytes([len(af)]) + af
     assert len(pkt) == TAM_PKT, len(pkt)
@@ -65,7 +65,7 @@ def pkt_pes(pid: int, pts: int, dts: int | None = None, carga: bytes = b"VIDEO")
     # PUSI (0x40) tiene que ir puesto o no es un arranque de PES.
     pkt = bytearray([0x47, 0x40 | ((pid >> 8) & 0x1F), pid & 0xFF, 0x10])
     pkt += cuerpo
-    pkt += b"\xFF" * (TAM_PKT - len(pkt))
+    pkt += b"\xff" * (TAM_PKT - len(pkt))
     assert len(pkt) == TAM_PKT
     return pkt
 
@@ -114,7 +114,7 @@ def test_sin_delta_no_toca_un_byte():
 
 def test_desplaza_pcr_y_pts_una_constante():
     rem = Remendador()
-    rem.sincronizar(10_000, 1_000)          # delta = 9000
+    rem.sincronizar(10_000, 1_000)  # delta = 9000
     buf = bytearray(pkt_pcr(PID_VIDEO, 1_000) + pkt_pes(PID_VIDEO, 1_000))
     cuenta = rem.procesar(buf)
     assert cuenta.pcr == 1 and cuenta.pts == 1 and cuenta.movidos == 2
@@ -134,7 +134,7 @@ def test_el_paso_deja_un_cuadro_de_separacion():
 def test_envuelve_en_33_bits():
     casi_final = MOD - 5
     rem = Remendador()
-    rem.sincronizar(casi_final, 100)        # delta = MOD - 105
+    rem.sincronizar(casi_final, 100)  # delta = MOD - 105
     buf = bytearray(pkt_pes(PID_VIDEO, 100))
     rem.procesar(buf)
     assert leer_sello(buf, 13) == casi_final % MOD
@@ -157,7 +157,7 @@ def test_la_carga_util_no_se_toca():
     buf = bytearray(pkt_pes(PID_VIDEO, 1_000, carga=carga))
     pos = bytes(buf).index(carga)
     rem.procesar(buf)
-    assert bytes(buf)[pos:pos + len(carga)] == carga, "el video va intacto"
+    assert bytes(buf)[pos : pos + len(carga)] == carga, "el video va intacto"
     assert leer_sello(buf, 13) == 1_000 + 89_000, "y el sello si se movio"
 
 

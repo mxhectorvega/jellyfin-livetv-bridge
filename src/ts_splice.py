@@ -156,8 +156,9 @@ class Remendador:
         self.ultimo_pts_emitido: int | None = None
 
     # ------------------------------------------------------------------
-    def sincronizar(self, ultimo_pts_emitido: int | None, primer_pts_crudo: int | None,
-                    paso: int = 0) -> int:
+    def sincronizar(
+        self, ultimo_pts_emitido: int | None, primer_pts_crudo: int | None, paso: int = 0
+    ) -> int:
         """Calcula el desplazamiento para que la fuente nueva continue a la vieja.
 
         - Returns: el ``delta`` aplicado (modulo ``2**33``), o ``0`` si falta
@@ -202,14 +203,14 @@ class Remendador:
             pid = ((buf[i + 1] & 0x1F) << 8) | buf[i + 2]
             afc = (buf[i + 3] >> 4) & 0x03
             off = i + 4
-            if afc & 0x02:                        # hay campo de adaptacion
+            if afc & 0x02:  # hay campo de adaptacion
                 af_len = buf[off]
                 if af_len > 0:
                     if marcar and pid not in self.pids_marcados:
-                        buf[off + 1] |= 0x80      # discontinuity_indicator
+                        buf[off + 1] |= 0x80  # discontinuity_indicator
                         self.pids_marcados.add(pid)
                         cuenta.marcados += 1
-                    if desplazar and (buf[off + 1] & 0x10):     # PCR_flag
+                    if desplazar and (buf[off + 1] & 0x10):  # PCR_flag
                         base, ext = leer_pcr(buf, off + 2)
                         escribir_pcr(buf, off + 2, (base + delta) % MOD, ext)
                         cuenta.movidos += 1
@@ -217,9 +218,9 @@ class Remendador:
                         cuenta.pcr += 1
                 off += 1 + af_len
 
-            if not (buf[i + 1] & 0x40):           # payload_unit_start_indicator
+            if not (buf[i + 1] & 0x40):  # payload_unit_start_indicator
                 continue
-            if buf[off:off + 3] != b"\x00\x00\x01":
+            if buf[off : off + 3] != b"\x00\x00\x01":
                 continue
             tipo = (buf[off + 7] >> 6) & 0x03
             if tipo not in (2, 3):
@@ -262,7 +263,7 @@ def primer_pts(buf: bytes | bytearray) -> int | None:
         off = i + 4
         if afc & 0x02:
             off += 1 + buf[i + 4]
-        if buf[off:off + 3] != b"\x00\x00\x01":
+        if buf[off : off + 3] != b"\x00\x00\x01":
             continue
         if ((buf[off + 7] >> 6) & 0x03) in (2, 3):
             return leer_sello(buf, off + 9)

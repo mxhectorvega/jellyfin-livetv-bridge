@@ -40,8 +40,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator
 
 from .ts_splice import Remendador, primer_pts
 from .util import get_logger
@@ -53,18 +53,18 @@ DESCARGA_INTENTOS = 4
 DESCARGA_ESPERA_S = 0.8
 MANIFIESTO_MAX_BYTES = 2 * 1024 * 1024
 SEGMENTO_MAX_BYTES = 16 * 1024 * 1024
-SONDEO_S = 0.5                 # cada cuanto se relee el playlist
-COLCHON_SEGMENTOS = 3          # distancia del cliente al frente de escritura
-MAX_SEGMENTOS = 15             # ventana que se conserva en memoria
-MAX_BYTES = 32 * 1024 * 1024   # tope de la ventana por canal
-ARRANQUE_MAX_S = 3.0           # el primer byte tiene que salir antes que el sondeo de Jellyfin
-CLIENTE_OLVIDO_S = 60.0        # un cliente que no avanza tanto tiempo se da por muerto
-FALLOS_PARA_CAMBIAR = 3        # fallos consecutivos antes de saltar a la fuente alterna
+SONDEO_S = 0.5  # cada cuanto se relee el playlist
+COLCHON_SEGMENTOS = 3  # distancia del cliente al frente de escritura
+MAX_SEGMENTOS = 15  # ventana que se conserva en memoria
+MAX_BYTES = 32 * 1024 * 1024  # tope de la ventana por canal
+ARRANQUE_MAX_S = 3.0  # el primer byte tiene que salir antes que el sondeo de Jellyfin
+CLIENTE_OLVIDO_S = 60.0  # un cliente que no avanza tanto tiempo se da por muerto
+FALLOS_PARA_CAMBIAR = 3  # fallos consecutivos antes de saltar a la fuente alterna
 # Memoria de "ya bajado": basta recordar la ventana viva. Era un `set` sin tope
 # que crecia toda la vida del proceso (~30k URLs/dia en fuentes que rotan el
 # nombre de la variante: medido en Canal 5, 2,486 en 2 h -> ~2.75 GB/año).
 MAX_VISTOS = 512
-MAX_CLAVES = 64                # llaves AES en cache (URI -> hex), tambien LRU
+MAX_CLAVES = 64  # llaves AES en cache (URI -> hex), tambien LRU
 # Tope de espera entre vueltas del lector cuando la fuente no responde: sin el,
 # un origen muerto con UNA sola fuente se reintentaba cada ~0.5 s para siempre.
 REINTENTO_MAX_ESPERA_S = 30.0
@@ -86,16 +86,18 @@ class RefSegmento:
 
     url: str
     dur: float
-    key_uri: str = ""     # URI de la llave AES-128 ("" = sin cifrar)
-    iv: str = ""          # IV en hex; vacio = se usa el numero de secuencia
-    seq: int = 0          # numero de secuencia (para el IV por omision)
+    key_uri: str = ""  # URI de la llave AES-128 ("" = sin cifrar)
+    iv: str = ""  # IV en hex; vacio = se usa el numero de secuencia
+    seq: int = 0  # numero de secuencia (para el IV por omision)
 
 
 def _hex_a_bytes(texto: str) -> str:
     return texto.strip().removeprefix("0x").removeprefix("0X").lower()
 
 
-def _http(url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int = SEGMENTO_MAX_BYTES) -> bytes:
+def _http(
+    url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int = SEGMENTO_MAX_BYTES
+) -> bytes:
     """GET crudo con User-Agent opcional (urllib no lo pone por defecto)."""
     headers = {"Accept": "*/*"}
     if user_agent:
@@ -108,8 +110,15 @@ def _http(url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int 
 class RelayHLS:
     """Lee un origen HLS y mantiene un colchón de segmentos reemisible."""
 
-    def __init__(self, fuentes, user_agent: str = "", resolver=None, nombre: str = "",
-                 remendar: bool = True, paso_cuadro: int = 3003) -> None:
+    def __init__(
+        self,
+        fuentes,
+        user_agent: str = "",
+        resolver=None,
+        nombre: str = "",
+        remendar: bool = True,
+        paso_cuadro: int = 3003,
+    ) -> None:
         """``fuentes`` es la principal seguida de sus respaldos (en orden).
 
         - Discussion: si la principal deja de responder ``FALLOS_PARA_CAMBIAR``
@@ -134,25 +143,25 @@ class RelayHLS:
         self._fallos = 0
         self._cambios = 0
 
-        self._lock = threading.RLock()   # _podar() se llama con el lock tomado
-        self._buf: "OrderedDict[int, Segmento]" = OrderedDict()
+        self._lock = threading.RLock()  # _podar() se llama con el lock tomado
+        self._buf: OrderedDict[int, Segmento] = OrderedDict()
         # LRU acotado, no un set sin tope: ver MAX_VISTOS.
-        self._vistos: "OrderedDict[str, None]" = OrderedDict()
-        self._clientes: dict[int, tuple[int, float]] = {}   # id -> (idx, ultimo avance)
-        self._tuvo_clientes = False     # distingue precalentado de "quedo ocioso"
+        self._vistos: OrderedDict[str, None] = OrderedDict()
+        self._clientes: dict[int, tuple[int, float]] = {}  # id -> (idx, ultimo avance)
+        self._tuvo_clientes = False  # distingue precalentado de "quedo ocioso"
         self._ultimo_cliente = time.monotonic()
 
-        self._variante = ""          # "" = aun hay que resolver el master
-        self._usar_master = True     # el source_url es un master
-        self._claves: "OrderedDict[str, str]" = OrderedDict()   # URI de llave AES -> hex
-        self._cifrados = 0           # segmentos descifrados (AES-128)
-        self._refrescar_token = False   # el proximo resolver debe pedir token NUEVO
-        self._frente = 0             # cuantos segmentos se han encolado
-        self._primero = 1            # idx del segmento mas viejo en el buffer
+        self._variante = ""  # "" = aun hay que resolver el master
+        self._usar_master = True  # el source_url es un master
+        self._claves: OrderedDict[str, str] = OrderedDict()  # URI de llave AES -> hex
+        self._cifrados = 0  # segmentos descifrados (AES-128)
+        self._refrescar_token = False  # el proximo resolver debe pedir token NUEVO
+        self._frente = 0  # cuantos segmentos se han encolado
+        self._primero = 1  # idx del segmento mas viejo en el buffer
         self._error = ""
-        self._refrescos = 0          # veces que hubo que re-resolver el master
+        self._refrescos = 0  # veces que hubo que re-resolver el master
         self._descargas = 0
-        self._espera_s = SONDEO_S    # espera entre vueltas del lector (backoff)
+        self._espera_s = SONDEO_S  # espera entre vueltas del lector (backoff)
         # Remiendo de la linea de tiempo (ver src/ts_splice.py). Con una sola
         # fuente, o antes del primer cambio, `procesar` solo LEE: no escribe un
         # byte mientras el delta sea 0. El desplazamiento se calcula nada mas
@@ -175,10 +184,12 @@ class RelayHLS:
         intentos = 1 if (len(self.fuentes) > 1 and not self._buf) else DESCARGA_INTENTOS
         for intento in range(intentos):
             try:
-                return _http(url, self.user_agent, max_bytes=MANIFIESTO_MAX_BYTES).decode("utf-8", "replace")
+                return _http(url, self.user_agent, max_bytes=MANIFIESTO_MAX_BYTES).decode(
+                    "utf-8", "replace"
+                )
             except urllib.error.HTTPError as exc:
                 if exc.code in (404, 403, 410):
-                    raise                       # ruta muerta: no se reintenta
+                    raise  # ruta muerta: no se reintenta
                 if intento + 1 >= intentos:
                     raise
             except Exception:
@@ -215,7 +226,7 @@ class RelayHLS:
         return max(candidatos, key=lambda par: par[0])[1]
 
     @staticmethod
-    def _segmentos_del_playlist(texto: str, base: str) -> list["RefSegmento"]:
+    def _segmentos_del_playlist(texto: str, base: str) -> list[RefSegmento]:
         """Refs de los segmentos de un playlist media, con su llave AES si la traen.
 
         - Important: ``#EXT-X-KEY`` aplica al segmento SIGUIENTE y puede cambiar
@@ -272,13 +283,17 @@ class RelayHLS:
                 return self.resolver(self._indice, forzar=forzar)
             except TypeError:
                 try:
-                    return self.resolver(self._indice)      # resolver sin ``forzar``
+                    return self.resolver(self._indice)  # resolver sin ``forzar``
                 except Exception as exc:  # noqa: BLE001
-                    log.error("relay: no se pudo resolver el origen",
-                              extra={"channel": self.nombre, "detail": str(exc)[:200]})
+                    log.error(
+                        "relay: no se pudo resolver el origen",
+                        extra={"channel": self.nombre, "detail": str(exc)[:200]},
+                    )
             except Exception as exc:  # noqa: BLE001 — un token caido no debe tumbarlo
-                log.error("relay: no se pudo resolver el origen",
-                          extra={"channel": self.nombre, "detail": str(exc)[:200]})
+                log.error(
+                    "relay: no se pudo resolver el origen",
+                    extra={"channel": self.nombre, "detail": str(exc)[:200]},
+                )
         return self.fuentes[self._indice]
 
     def _contar_fallo(self) -> None:
@@ -305,8 +320,10 @@ class RelayHLS:
                 self._cambios += 1
                 log.warning(
                     "relay: cambiando de fuente",
-                    extra={"channel": self.nombre,
-                           "detail": f"indice={self._indice} {self.fuentes[self._indice][:70]}"},
+                    extra={
+                        "channel": self.nombre,
+                        "detail": f"indice={self._indice} {self.fuentes[self._indice][:70]}",
+                    },
                 )
             else:
                 self._fallos += 1
@@ -361,7 +378,8 @@ class RelayHLS:
                     self._variante = self._resolver_variante()
                     continue
                 pendientes = [
-                    ref for ref in self._segmentos_del_playlist(texto, self._variante)
+                    ref
+                    for ref in self._segmentos_del_playlist(texto, self._variante)
                     if ref.url not in self._vistos
                 ]
                 for ref in pendientes:
@@ -377,7 +395,7 @@ class RelayHLS:
                         self._frente += 1
                         self._buf[self._frente] = Segmento(self._frente, ref.url, datos, ref.dur)
                         self._descargas += 1
-                        self._fallos = 0          # la fuente activa respondio
+                        self._fallos = 0  # la fuente activa respondio
                         self._podar()
                     self._error = ""
                 with self._lock:
@@ -392,8 +410,10 @@ class RelayHLS:
                         self._refrescos += 1
                         self._variante = ""
                         self._refrescar_token = True
-                    log.warning("relay: re-resolviendo origen",
-                                extra={"channel": self.nombre, "detail": f"HTTP {exc.code}"})
+                    log.warning(
+                        "relay: re-resolviendo origen",
+                        extra={"channel": self.nombre, "detail": f"HTTP {exc.code}"},
+                    )
                 else:
                     self._error = f"HTTP {exc.code}"
                 self._contar_fallo()
@@ -404,7 +424,8 @@ class RelayHLS:
             # fallando, crece hasta REINTENTO_MAX_ESPERA_S: un origen muerto con
             # una sola fuente golpeaba el CDN cada ~0.5 s para siempre.
             self._espera_s = (
-                SONDEO_S if self._fallos == 0
+                SONDEO_S
+                if self._fallos == 0
                 else min(REINTENTO_MAX_ESPERA_S, SONDEO_S * (2 ** min(self._fallos, 6)))
             )
             self._stop.wait(self._espera_s)
@@ -443,7 +464,7 @@ class RelayHLS:
             raise RuntimeError("openssl: " + proc.stderr.decode("utf-8", "replace").strip()[:150])
         return proc.stdout
 
-    def _bajar_segmento(self, ref: "RefSegmento") -> bytes | None:
+    def _bajar_segmento(self, ref: RefSegmento) -> bytes | None:
         for intento in range(DESCARGA_INTENTOS):
             try:
                 crudo = _http(ref.url, self.user_agent)
@@ -489,8 +510,7 @@ class RelayHLS:
             self._remiendos += 1
             log.warning(
                 "relay: empalmando linea de tiempo",
-                extra={"channel": self.nombre,
-                       "detail": f"fuente={self._indice} delta={delta}"},
+                extra={"channel": self.nombre, "detail": f"fuente={self._indice} delta={delta}"},
             )
         self._rem.procesar(buf)
         return bytes(buf)
@@ -617,14 +637,16 @@ class RelayHLS:
                 idx = self._frente + 1
             self._clientes[cid] = (idx, time.monotonic())
             self._tuvo_clientes = True
-        log.info("relay: cliente enganchado",
-                 extra={"channel": self.nombre, "detail": f"idx={idx} frente={self._frente}"})
+        log.info(
+            "relay: cliente enganchado",
+            extra={"channel": self.nombre, "detail": f"idx={idx} frente={self._frente}"},
+        )
 
         try:
             while not self._stop.is_set():
                 with self._lock:
                     seg = self._buf.get(idx)
-                    if idx < self._primero:              # se quedo atras: se salta
+                    if idx < self._primero:  # se quedo atras: se salta
                         idx = self._primero
                         self._clientes[cid] = (idx, time.monotonic())
                         seg = self._buf.get(idx)
@@ -632,15 +654,17 @@ class RelayHLS:
                         self._clientes[cid] = (idx + 1, time.monotonic())
                         idx += 1
                 if seg is None:
-                    time.sleep(0.05)                     # aun no hay datos en idx
+                    time.sleep(0.05)  # aun no hay datos en idx
                     continue
                 yield seg.datos
         finally:
             with self._lock:
                 self._clientes.pop(cid, None)
                 self._ultimo_cliente = time.monotonic()
-            log.info("relay: cliente desenganchado",
-                     extra={"channel": self.nombre, "detail": f"idx={idx}"})
+            log.info(
+                "relay: cliente desenganchado",
+                extra={"channel": self.nombre, "detail": f"idx={idx}"},
+            )
 
     # ------------------------------------------------------------ introspeccion
     @property
@@ -668,8 +692,15 @@ class RelayPool:
         self._lock = threading.Lock()
         self._relays: dict[str, RelayHLS] = {}
 
-    def get(self, clave: str, fuentes, user_agent: str = "", resolver=None,
-            remendar: bool = True, paso_cuadro: int = 3003) -> RelayHLS:
+    def get(
+        self,
+        clave: str,
+        fuentes,
+        user_agent: str = "",
+        resolver=None,
+        remendar: bool = True,
+        paso_cuadro: int = 3003,
+    ) -> RelayHLS:
         """Devuelve (creando si hace falta) el relé de un canal.
 
         - Discussion: ``fuentes`` es la principal + sus respaldos. La clave es
@@ -684,8 +715,14 @@ class RelayPool:
             if relay is None or relay.fuentes != lista:
                 if relay is not None:
                     relay.detener()
-                relay = RelayHLS(lista, user_agent, resolver=resolver, nombre=clave,
-                                 remendar=remendar, paso_cuadro=paso_cuadro)
+                relay = RelayHLS(
+                    lista,
+                    user_agent,
+                    resolver=resolver,
+                    nombre=clave,
+                    remendar=remendar,
+                    paso_cuadro=paso_cuadro,
+                )
                 relay.arrancar()
                 self._relays[clave] = relay
             else:

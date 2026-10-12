@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from .config import Settings
 from .models import Channel
@@ -34,7 +34,7 @@ WINDOW_PAST_HOURS = 6
 WINDOW_FUTURE_DAYS = 7
 # Centinela para ordenar programas sin ``start`` utilizable: van primero y el
 # chequeo de traslape los deja pasar (no se puede comparar lo que no se parsea).
-EPOCH_MIN = datetime(1970, 1, 1, tzinfo=timezone.utc)
+EPOCH_MIN = datetime(1970, 1, 1, tzinfo=UTC)
 
 # ``YYYYMMDDHHMMSS`` seguido de nada, de ``Z`` o de ``+HHMM``/``-HHMM`` (con o
 # sin espacio en medio). El offset se captura en grupos SEPARADOS (signo, horas,
@@ -53,7 +53,7 @@ _ENTIDAD_RE = re.compile(rb"<!\s*ENTITY", re.I)
 class EpgBundle:
     """Guia cruda de todas las fuentes, indexada para el empate."""
 
-    channels: dict[str, list[str]] = field(default_factory=dict)   # id -> nombres
+    channels: dict[str, list[str]] = field(default_factory=dict)  # id -> nombres
     programmes: dict[str, list[ET.Element]] = field(default_factory=dict)  # id -> <programme>
     sources_ok: list[str] = field(default_factory=list)
     sources_failed: list[str] = field(default_factory=list)
@@ -82,10 +82,10 @@ def _parse_time(text: str | None) -> datetime | None:
         base = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
     except ValueError:
         return None
-    if match.group(3):                       # offset explicito +HHMM / -HHMM
+    if match.group(3):  # offset explicito +HHMM / -HHMM
         delta = timedelta(hours=int(match.group(4)), minutes=int(match.group(5)))
         return base.replace(tzinfo=timezone(-delta if match.group(3) == "-" else delta))
-    return base.replace(tzinfo=timezone.utc)  # ``Z`` o sin marca: UTC
+    return base.replace(tzinfo=UTC)  # ``Z`` o sin marca: UTC
 
 
 def parse_xmltv(xml_bytes: bytes) -> EpgBundle:
@@ -103,7 +103,7 @@ def parse_xmltv(xml_bytes: bytes) -> EpgBundle:
             "Ninguna guia legitima necesita entidades internas."
         )
     root = ET.fromstring(xml_bytes)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     earliest = now - timedelta(hours=WINDOW_PAST_HOURS)
     latest = now + timedelta(days=WINDOW_FUTURE_DAYS)
 
@@ -152,7 +152,9 @@ def fetch_epg(sources: list[dict]) -> EpgBundle:
             raw = http_get(url, timeout=float(src.get("timeout_s") or 30))
             bundle = parse_xmltv(raw)
         except Exception as exc:  # noqa: BLE001 — una guia caida no tumba el resto
-            log.error("fuente EPG inaccesible", extra={"channel": name, "url": url, "detail": str(exc)})
+            log.error(
+                "fuente EPG inaccesible", extra={"channel": name, "url": url, "detail": str(exc)}
+            )
             merged.sources_failed.append(name)
             continue
 
@@ -197,7 +199,9 @@ def build_name_index(epg_channels: dict[str, list[str]]) -> dict[str, str]:
     return index
 
 
-def map_channels(channels: list[Channel], bundle: EpgBundle, mappings: dict[str, str] | None = None) -> dict[str, int]:
+def map_channels(
+    channels: list[Channel], bundle: EpgBundle, mappings: dict[str, str] | None = None
+) -> dict[str, int]:
     """Asigna ``epg_id`` a cada canal y reporta cobertura.
 
     Orden de precedencia:
@@ -241,6 +245,42 @@ def channels_without_guide(channels: list[Channel]) -> list[str]:
     return [ch.name for ch in channels if not ch.epg_id]
 
 
+def validar_xmltv(root: ET.Element) -> dict[str, int]:
+    """Comprueba la salida contra lo que el DTD de XMLTV exige.
+
+    - Discussion: el DTD lo dice asi -- ``<!ELEMENT tv (channel*, programme*)>``;
+      ``<!ATTLIST channel id CDATA #REQUIRED>`` y ``display-name+``; y
+      ``<!ATTLIST programme start CDATA #REQUIRED ... channel CDATA #REQUIRED>``
+      con ``title+``. ``stop`` es ``#IMPLIED``: puede faltar y no es falta.
+    - Important: se corre ANTES de escribir. Una guia que no valida no debe
+      reemplazar a una que si: mismo criterio que con la guia vacia.
+    - Throws: ``ValueError`` si el documento no valida.
+    - Returns: el conteo de lo revisado.
+    """
+    canales = {c.get("id") for c in root.findall("channel")}
+    programas = root.findall("programme")
+    invalidos = 0
+    sin_canal = 0
+    for programa in programas:
+        if (
+            not programa.get("start")
+            or not programa.get("channel")
+            or not programa.findtext("title")
+        ):
+            invalidos += 1
+        elif programa.get("channel") not in canales:
+            sin_canal += 1
+    conteo = {
+        "canales": len(canales),
+        "programas": len(programas),
+        "programas_invalidos": invalidos,
+        "programas_sin_canal": sin_canal,
+    }
+    if invalidos or sin_canal:
+        raise ValueError(f"la guia no valida contra el DTD de XMLTV: {conteo}")
+    return conteo
+
+
 def render_xmltv(channels: list[Channel], bundle: EpgBundle, settings: Settings) -> str:
     """Escribe el XMLTV final en ``/data/epg.xml`` con los ids del catalogo.
 
@@ -253,12 +293,16 @@ def render_xmltv(channels: list[Channel], bundle: EpgBundle, settings: Settings)
       Congreso en iptv-epg MX, 27 traslapes sobre 83 programas) y Jellyfin
       dibuja el resultado como programas encimados. Se ordena por inicio y se
       descarta todo programa que empiece antes de que termine el anterior.
+    - Important: el documento se valida contra el DTD de XMLTV antes de
+      escribirlo (:func:`validar_xmltv`). Un programa sin ``title`` o sin
+      ``start`` no valida y se descarta aqui.
     """
     root = ET.Element("tv", attrib={"generator-info-name": "jellyfin-livetv-bridge"})
     emitted: set[str] = set()
     seen_programmes: set[tuple[str, str, str]] = set()
     total_programmes = 0
     descartados_traslape = 0
+    descartados_invalidos = 0
 
     for ch in channels:
         if not ch.epg_id:
@@ -278,12 +322,16 @@ def render_xmltv(channels: list[Channel], bundle: EpgBundle, settings: Settings)
         )
         fin_anterior: datetime | None = None
         for programme in programas:
+            # El DTD pide title+ y start REQUIRED: un programa sin eso no valida.
+            title = (programme.findtext("title") or "").strip()
+            if not title or not programme.get("start"):
+                descartados_invalidos += 1
+                continue
             inicio = _parse_time(programme.get("start"))
             fin = _parse_time(programme.get("stop"))
             if fin_anterior is not None and inicio is not None and inicio < fin_anterior:
                 descartados_traslape += 1
                 continue
-            title = (programme.findtext("title") or "").strip()
             key = (published, programme.get("start") or "", title)
             if key in seen_programmes:
                 continue
@@ -298,6 +346,7 @@ def render_xmltv(channels: list[Channel], bundle: EpgBundle, settings: Settings)
     if not list(root):
         # Un XMLTV vacio no debe reemplazar a uno viejo con datos.
         raise ValueError("la guia generada quedo vacia; no se sobreescribe la anterior")
+    validar_xmltv(root)
 
     text = '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
     write_atomic(settings.epg_file, text)
@@ -305,13 +354,18 @@ def render_xmltv(channels: list[Channel], bundle: EpgBundle, settings: Settings)
         "guia escrita",
         extra={
             "count": total_programmes,
-            "detail": f"canales={len(emitted)} traslapes_descartados={descartados_traslape}",
+            "detail": (
+                f"canales={len(emitted)} traslapes_descartados={descartados_traslape} "
+                f"invalidos_descartados={descartados_invalidos}"
+            ),
         },
     )
     return text
 
 
-def refresh_epg(settings: Settings, cfg: dict, channels: list[Channel]) -> tuple[dict[str, int], EpgBundle]:
+def refresh_epg(
+    settings: Settings, cfg: dict, channels: list[Channel]
+) -> tuple[dict[str, int], EpgBundle]:
     """Corre la etapa EPG: descarga, mapea y devuelve el bundle.
 
     - Discussion: NO escribe el XMLTV. La escritura la hace

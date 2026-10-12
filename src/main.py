@@ -60,7 +60,9 @@ async def run_pipeline(state: AppState) -> dict[str, Any]:
             channels = await asyncio.to_thread(check_channels, channels, settings)
             report["accesibles"] = sum(1 for ch in channels if ch.probe.accessible)
 
-            channels, norm_report = normalize(channels, settings, check_logos=bool(cfg.get("check_logos")))
+            channels, norm_report = normalize(
+                channels, settings, check_logos=bool(cfg.get("check_logos"))
+            )
             channels = aplicar_respaldos(channels, cfg.get("respaldo"))
             report["normalizacion"] = norm_report
 
@@ -104,7 +106,9 @@ async def run_pipeline(state: AppState) -> dict[str, Any]:
                     report["reles_omitidos"] = max(0, len(publicados) - len(objetivo))
                     report["reles_con_respaldo"] = sum(1 for ch in objetivo if ch.backups)
                 except Exception as exc:  # noqa: BLE001 — no tumbar la corrida
-                    log.warning("no se pudieron precalentar los reles", extra={"detail": str(exc)[:200]})
+                    log.warning(
+                        "no se pudieron precalentar los reles", extra={"detail": str(exc)[:200]}
+                    )
 
             # Suelta los reles que ya no sirven al catalogo publicado (o que
             # llevan rato sin clientes). Sin esto, cambiar de catalogo dejaba los
@@ -142,7 +146,11 @@ def persist_state(state: AppState) -> None:
         "salud": state.monitor.snapshot() if state.monitor else {},
     }
     try:
-        write_atomic(state.settings.state_file, json.dumps(payload, ensure_ascii=False, indent=1))
+        write_atomic(
+            state.settings.state_file,
+            json.dumps(payload, ensure_ascii=False, indent=1),
+            modo=0o600,
+        )
     except OSError as exc:
         log.warning("no se pudo persistir el estado", extra={"detail": str(exc)})
 
@@ -221,7 +229,10 @@ def build_state() -> AppState:
     try:
         cfg = load_config_file(pre.sources_file)
     except FileNotFoundError:
-        log.warning("no hay sources.yml; se usara /config/sources.example.yml como ejemplo", extra={"detail": str(pre.sources_file)})
+        log.warning(
+            "no hay sources.yml; se usara /config/sources.example.yml como ejemplo",
+            extra={"detail": str(pre.sources_file)},
+        )
         cfg = {}
     settings = Settings.from_env(cfg.get("settings") or {})
     settings.ensure_dirs()
@@ -234,7 +245,10 @@ async def main_async() -> None:
     """Arranque completo del servicio."""
     state = build_state()
     setup_logging(state.settings.log_level, state.settings.log_format)
-    log.info("jellyfin-livetv-bridge arrancando", extra={"detail": f"config={state.settings.config_dir} data={state.settings.data_dir}"})
+    log.info(
+        "jellyfin-livetv-bridge arrancando",
+        extra={"detail": f"config={state.settings.config_dir} data={state.settings.data_dir}"},
+    )
 
     # Estado previo: sirve canales mientras corre el primer pipeline.
     state.put_channels(load_state(state.settings.state_file))

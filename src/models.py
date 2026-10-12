@@ -26,7 +26,7 @@ class ProbeResult:
     """
 
     accessible: bool = False
-    method: str = ""                 # ffprobe | liveness
+    method: str = ""  # ffprobe | liveness
     video_codec: str = ""
     audio_codec: str = ""
     width: int = 0
@@ -36,10 +36,10 @@ class ProbeResult:
     format_name: str = ""
     container: str = ""
     resolution: str = ""
-    encrypted: bool = False          # EXT-X-KEY / ContentProtection / senc-cenc
-    drm: bool = False                # licencia declarada (Widevine/PlayReady)
-    signed_token: bool = False       # URL con token firmado (jwt/exp/hdnts)
-    auth_required: bool = False      # 401/403 o cabeceras exigidas
+    encrypted: bool = False  # EXT-X-KEY / ContentProtection / senc-cenc
+    drm: bool = False  # licencia declarada (Widevine/PlayReady)
+    signed_token: bool = False  # URL con token firmado (jwt/exp/hdnts)
+    auth_required: bool = False  # 401/403 o cabeceras exigidas
     error: str = ""
     checked_at: str = ""
     detail: str = ""
@@ -70,11 +70,11 @@ class Channel:
     country: str = ""
     language: str = ""
     source: str = ""
-    catalog: str = ""                # grupo seleccionable (nacionales|pluto|vix|...)
-    profile: str = "auto"            # auto | copy | h264 | aac
-    backups: list[str] = field(default_factory=list)   # fuentes alternas, en orden
+    catalog: str = ""  # grupo seleccionable (nacionales|pluto|vix|...)
+    profile: str = "auto"  # auto | copy | h264 | aac
+    backups: list[str] = field(default_factory=list)  # fuentes alternas, en orden
     enabled: bool = True
-    epg_id: str = ""                 # id final en el XMLTV (vacío = sin guía)
+    epg_id: str = ""  # id final en el XMLTV (vacío = sin guía)
     probe: ProbeResult = field(default_factory=ProbeResult)
     disabled_reason: str = ""
 
@@ -92,8 +92,14 @@ class Channel:
         return json.dumps(self.as_dict(), ensure_ascii=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Channel":
-        probe = ProbeResult(**{k: v for k, v in (data.get("probe") or {}).items() if k in ProbeResult.__dataclass_fields__})
+    def from_dict(cls, data: dict[str, Any]) -> Channel:
+        probe = ProbeResult(
+            **{
+                k: v
+                for k, v in (data.get("probe") or {}).items()
+                if k in ProbeResult.__dataclass_fields__
+            }
+        )
         payload = {k: v for k, v in data.items() if k in cls.__dataclass_fields__ and k != "probe"}
         return cls(probe=probe, **payload)
 

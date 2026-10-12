@@ -18,9 +18,10 @@ import time
 import urllib.error
 import urllib.request
 import zlib
-from datetime import datetime, timezone
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 DEFAULT_USER_AGENT = "jellyfin-livetv-bridge/0.1 (+https://example.invalid)"
 DEFAULT_TIMEOUT = 20.0
@@ -44,7 +45,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ts": datetime.now(UTC).isoformat(timespec="seconds"),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
@@ -80,7 +81,7 @@ def get_logger(name: str) -> logging.Logger:
 # ---------------------------------------------------------------------------
 def now_iso() -> str:
     """Timestamp ISO-8601 en UTC, segundos de precision."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def monotonic() -> float:
@@ -198,8 +199,13 @@ def run_cmd(
 # ---------------------------------------------------------------------------
 # Archivos
 # ---------------------------------------------------------------------------
-def write_atomic(path: str | Path, data: str | bytes) -> Path:
-    """Escribe un archivo de forma atomica (temporal + ``os.replace``)."""
+def write_atomic(path: str | Path, data: str | bytes, modo: int | None = None) -> Path:
+    """Escribe un archivo de forma atomica (temporal + ``os.replace``).
+
+    - Note: ``modo`` fija los permisos del destino (p. ej. ``0o600`` para
+      ``state.json``, que trae las URLs de origen). Sin el, manda el ``umask``
+      del proceso, que en el contenedor deja 644.
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
@@ -208,6 +214,8 @@ def write_atomic(path: str | Path, data: str | bytes) -> Path:
         fh.write(payload)
         fh.flush()
         os.fsync(fh.fileno())
+    if modo is not None:
+        os.chmod(tmp, modo)
     os.replace(tmp, target)
     return target
 

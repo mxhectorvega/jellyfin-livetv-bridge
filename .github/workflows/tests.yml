@@ -23,6 +23,22 @@ jobs:
       - name: pytest
         run: python -m pytest -q
 
+  estilo:
+    # El estilo se COMPRUEBA, no se pide por favor. Misma linea de 100 columnas
+    # que declara pyproject.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar ruff
+        run: pip install ruff==0.17.0
+      - name: ruff check
+        run: ruff check .
+      - name: ruff format --check
+        run: ruff format --check .
+
   e2e:
     # El banco sintetico genera un HLS real: necesita ffmpeg (y openssl, que ya
     # viene en el runner). Es el unico que prueba el arranque, no solo la logica.

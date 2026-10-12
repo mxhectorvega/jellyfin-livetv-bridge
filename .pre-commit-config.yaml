@@ -1,0 +1,18 @@
+# Enganches locales. Instalar con:  pip install pre-commit && pre-commit install
+# Corren lo mismo que el CI, antes de que el commit salga del CT.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff
+      - id: ruff-format

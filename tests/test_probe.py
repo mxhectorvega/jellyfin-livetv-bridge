@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from src import probe as probe_mod
 from src.probe import (
     absolute,
@@ -62,7 +60,15 @@ def test_probe_liveness_vivo(monkeypatch):
 
 
 def test_probe_liveness_segmento_chico_muere(monkeypatch):
-    monkeypatch.setattr(probe_mod, "http_get", lambda *a, **k: VARIANT.encode() if a[0].endswith("720.m3u8") else (MASTER.encode() if a[0].endswith("master.m3u8") else b"\x47" + b"\x00" * 100))
+    monkeypatch.setattr(
+        probe_mod,
+        "http_get",
+        lambda *a, **k: (
+            VARIANT.encode()
+            if a[0].endswith("720.m3u8")
+            else (MASTER.encode() if a[0].endswith("master.m3u8") else b"\x47" + b"\x00" * 100)
+        ),
+    )
     res = probe_liveness("https://example.invalid/master.m3u8", timeout=1)
     assert res.accessible is False
     assert "piso" in res.error or "por debajo" in res.error
@@ -70,7 +76,15 @@ def test_probe_liveness_segmento_chico_muere(monkeypatch):
 
 def test_probe_liveness_drm_no_reproducible(monkeypatch):
     drm_master = "#EXTM3U\n#EXT-X-SESSION-KEY:URI=widevine\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv.m3u8\n"
-    monkeypatch.setattr(probe_mod, "http_get", lambda *a, **k: drm_master.encode() if a[0].endswith("master.m3u8") else (VARIANT.encode() if a[0].endswith("v.m3u8") else SEGMENT))
+    monkeypatch.setattr(
+        probe_mod,
+        "http_get",
+        lambda *a, **k: (
+            drm_master.encode()
+            if a[0].endswith("master.m3u8")
+            else (VARIANT.encode() if a[0].endswith("v.m3u8") else SEGMENT)
+        ),
+    )
     res = probe_liveness("https://example.invalid/master.m3u8", timeout=1)
     assert res.drm is True
     assert res.accessible is False
@@ -83,7 +97,11 @@ def test_probe_liveness_lista_directa_sin_ladder(monkeypatch):
     caido un canal vivo. Ahora el descenso resuelve la base contra la URL.
     """
     directa = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg000.ts\n#EXTINF:4.0,\nseg001.ts\n"
-    monkeypatch.setattr(probe_mod, "http_get", lambda url, **k: directa.encode() if url.endswith("master.m3u8") else SEGMENT)
+    monkeypatch.setattr(
+        probe_mod,
+        "http_get",
+        lambda url, **k: directa.encode() if url.endswith("master.m3u8") else SEGMENT,
+    )
     res = probe_liveness("https://example.invalid/master.m3u8", timeout=1)
     assert res.accessible is True
     assert res.container == "mpegts"
@@ -123,9 +141,16 @@ def test_probe_ffprobe_error_no_lanza(monkeypatch):
 
 
 def test_check_stream_modo_ffprobe_marca_protegido(monkeypatch):
-    salida = {"format": {"format_name": "hls"}, "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1, "height": 1}]}
+    salida = {
+        "format": {"format_name": "hls"},
+        "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1, "height": 1}],
+    }
     monkeypatch.setattr(probe_mod, "run_cmd", lambda *a, **k: (0, json.dumps(salida).encode(), b""))
-    monkeypatch.setattr(probe_mod, "http_get", lambda *a, **k: b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="k"\n#EXTINF:1,\ns.ts\n')
+    monkeypatch.setattr(
+        probe_mod,
+        "http_get",
+        lambda *a, **k: b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="k"\n#EXTINF:1,\ns.ts\n',
+    )
     res = check_stream("https://example.invalid/x", timeout=1, mode="ffprobe")
     assert res.encrypted is True
     assert res.drm is False
@@ -193,7 +218,9 @@ def test_probe_liveness_segmento_cifrado_sin_firma(monkeypatch):
 def test_check_stream_marca_token_en_la_url(monkeypatch):
     monkeypatch.setattr(probe_mod, "http_get", lambda *a, **k: SEGMENT)
     # Sin red: la sonda de metadatos se sustituye por una vacia.
-    monkeypatch.setattr(probe_mod, "probe_ffprobe", lambda *a, **k: probe_mod.ProbeResult(method="ffprobe"))
+    monkeypatch.setattr(
+        probe_mod, "probe_ffprobe", lambda *a, **k: probe_mod.ProbeResult(method="ffprobe")
+    )
     res = check_stream("https://example.invalid/x.ts?jwt=aaa.bbb.ccc", timeout=1, mode="liveness")
     assert res.signed_token is True
     assert res.accessible is True

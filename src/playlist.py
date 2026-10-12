@@ -35,7 +35,9 @@ def m3u_attr(valor: str) -> str:
     return " ".join(str(valor or "").replace('"', "'").split())
 
 
-def channel_url(channel: Channel, settings: Settings, use_proxy: bool = True, use_relay: bool = False) -> str:
+def channel_url(
+    channel: Channel, settings: Settings, use_proxy: bool = True, use_relay: bool = False
+) -> str:
     """URL que se publica para un canal.
 
     - Discussion: con ``use_proxy`` la URL es ``{base}/stream/{id}``; sin el,
@@ -55,7 +57,9 @@ def channel_url(channel: Channel, settings: Settings, use_proxy: bool = True, us
     return f"{base}/{ruta}/{urllib.parse.quote(channel.id)}"
 
 
-def build_m3u(channels: list[Channel], settings: Settings, use_proxy: bool = True, use_relay: bool = False) -> str:
+def build_m3u(
+    channels: list[Channel], settings: Settings, use_proxy: bool = True, use_relay: bool = False
+) -> str:
     """Construye el texto del M3U.
 
     - Important: solo salen canales habilitados y con validacion accesible.
@@ -88,7 +92,9 @@ def catalogs_of(channels: list[Channel]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def select_for_output(channels: list[Channel], settings: Settings, catalog: str | None = None) -> list[Channel]:
+def select_for_output(
+    channels: list[Channel], settings: Settings, catalog: str | None = None
+) -> list[Channel]:
     """Filtra la lista que sale al M3U segun catalogo activo y salud.
 
     - Discussion: quedan fuera los deshabilitados por el health-check y, si
@@ -119,7 +125,9 @@ def set_active_catalog(settings: Settings, catalog: str) -> str:
     return value
 
 
-def write_playlist(channels: list[Channel], settings: Settings, use_proxy: bool = True, use_relay: bool = False) -> int:
+def write_playlist(
+    channels: list[Channel], settings: Settings, use_proxy: bool = True, use_relay: bool = False
+) -> int:
     """Escribe ``/data/playlist.m3u`` de forma atomica. Devuelve el conteo."""
     selected = select_for_output(channels, settings)
     text = build_m3u(selected, settings, use_proxy=use_proxy, use_relay=use_relay)
@@ -149,7 +157,10 @@ def write_active_outputs(channels: list[Channel], bundle, settings: Settings) ->
         "epg_escrito": False,
     }
     if not selected:
-        log.warning("catalogo activo sin canales: no se sobrescribe el M3U", extra={"detail": target or "todos"})
+        log.warning(
+            "catalogo activo sin canales: no se sobrescribe el M3U",
+            extra={"detail": target or "todos"},
+        )
         return result
 
     write_playlist(selected, settings, use_relay=settings.relay_enabled)

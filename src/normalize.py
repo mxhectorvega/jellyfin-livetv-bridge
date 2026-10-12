@@ -45,7 +45,7 @@ def clean_name(name: str, patterns: list[str] | None = None) -> str:
       nombre mas alla de los patrones configurados.
     """
     text = _WS_RE.sub(" ", (name or "").strip())
-    for pattern in (patterns or DEFAULT_STRIP_PATTERNS):
+    for pattern in patterns or DEFAULT_STRIP_PATTERNS:
         try:
             text = re.sub(pattern, "", text, flags=re.I)
         except re.error:
@@ -192,7 +192,11 @@ def aplicar_respaldos(channels: list[Channel], respaldos: dict | None) -> list[C
         return channels
     puestos = 0
     for ch in channels:
-        urls = indice.get(ch.id) or indice.get(normalize_tvg_id(ch.tvg_id)) or indice.get(name_key(ch.name))
+        urls = (
+            indice.get(ch.id)
+            or indice.get(normalize_tvg_id(ch.tvg_id))
+            or indice.get(name_key(ch.name))
+        )
         if urls:
             ch.backups = urls
             puestos += 1
@@ -200,7 +204,9 @@ def aplicar_respaldos(channels: list[Channel], respaldos: dict | None) -> list[C
     return channels
 
 
-def normalize(channels: list[Channel], settings: Settings, check_logos: bool = False) -> tuple[list[Channel], dict[str, int]]:
+def normalize(
+    channels: list[Channel], settings: Settings, check_logos: bool = False
+) -> tuple[list[Channel], dict[str, int]]:
     """Etapa de normalizacion completa.
 
     - Discussion: limpieza de nombres -> filtro de grupos -> dedupe -> ids
@@ -227,8 +233,8 @@ def normalize(channels: list[Channel], settings: Settings, check_logos: bool = F
     used: set[str] = set()
     for ch in channels:
         ch.id = make_id(ch, used)
-        ch.tvg_id = ch.tvg_id or ch.id          # tvg-id publicado = id estable
-        ch.epg_id = ""                          # lo asigna la etapa EPG al empatar
+        ch.tvg_id = ch.tvg_id or ch.id  # tvg-id publicado = id estable
+        ch.epg_id = ""  # lo asigna la etapa EPG al empatar
 
     if check_logos:
         report["logos_invalidos"] = validate_logos(channels, workers=settings.probe_workers)
