@@ -1,0 +1,64 @@
+# docker-compose.yml — jellyfin-livetv-bridge
+#
+# Levanta UN contenedor: pipeline de ingesta/validacion/normalizacion +
+# generacion de M3U/XMLTV + API HTTP + health-check.
+#
+# Rutas ABSOLUTAS en /config y /data (el servicio nunca usa rutas relativas).
+# La red es host-network-friendly pero por defecto se publica el puerto en la
+# IP de LAN del host, no en 0.0.0.0, para no exponerlo a WAN.
+
+services:
+  livetv-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # UID/GID del dueno de /config y /data en el host (server:server).
+        LVB_UID: "1000"
+        LVB_GID: "1000"
+    image: jellyfin-livetv-bridge:0.1.0
+    container_name: livetv-bridge
+    env_file:
+      - ./.env
+    environment:
+      LVB_CONFIG_DIR: /config
+      LVB_DATA_DIR: /data
+      TZ: America/Mexico_City
+    volumes:
+      # sources.yml, .env y demas configuracion del usuario
+      - /home/server/jellyfin-livetv-bridge/config:/config:rw
+      # playlist.m3u, epg.xml y cache de validacion
+      - /home/server/jellyfin-livetv-bridge/data:/data:rw
+      # Catalogos y guias que ya viven en el host (fuente de verdad, RO)
+      - /home/server:/hostserver:ro
+    # Red del HOST: el catalogo de nacionales apunta a servicios que escuchan
+    # en 127.0.0.1 del CT (refresco-azteca en :8582, que renueva el token de TV
+    # Azteca). Con la red propia del contenedor ese 127.0.0.1 NO es el host y
+    # Azteca 7 queda inaccesible.
+    network_mode: host
+    # ports:
+    #   # host:contenedor — se publica en la IP de LAN del host (no 0.0.0.0).
+    #   - "${LVB_BIND_IP:-10.0.0.21}:8581:8581"
+    # Descomenta SOLO si el host tiene /dev/dri con VAAPI funcional (i965):
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "video"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8581/health', timeout=8).status==200 else 1)
+      interval: 60s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

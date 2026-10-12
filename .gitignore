@@ -1,0 +1,25 @@
+# Entorno
+.env
+
+# Datos generados en tiempo de ejecucion (NO versionar listas reales)
+/data/
+/config/sources.yml
+/config/*.local.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+
+# Editores
+.idea/
+.vscode/
+*.swp
+
+# Respaldos manuales y copias sueltas (no versionar)
+*.bak
+*.bak-*
+.env.bak-*
+/sources.yml

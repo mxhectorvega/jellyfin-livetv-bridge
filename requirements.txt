@@ -1,0 +1,14 @@
+# Versiones fijadas. Sin dependencias innecesarias:
+#  - PyYAML  : leer /config/sources.yml
+#  - FastAPI : endpoint HTTP ligero (/playlist.m3u, /epg.xml, /health, /status, /stream)
+#  - uvicorn : servidor ASGI
+#  - httpx   : cliente de test para FastAPI (starlette TestClient)
+#
+# Todo lo demas (HTTP, subprocess, XMLTV, gzip, logging JSON) usa la stdlib.
+PyYAML==6.0.2
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# --- desarrollo / pruebas (instalar con: pip install -r requirements-dev.txt) ---
+# pytest==8.3.4
+# httpx==0.28.1

@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------------------
+# sources.example.yml — PLANTILLA con datos FICTICIOS.
+#
+# Copia este archivo a /config/sources.yml y pon TUS fuentes.
+# El repositorio NO incluye listas de streams reales (ver DISCLAIMER.md).
+#
+# Dos formas de declarar canales:
+#   sources:  -> listas M3U/HLS publicas o propias (se descargan)
+#   channels: -> canales sueltos con metadatos explicitos
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Listas M3U externas o propias
+# ---------------------------------------------------------------------------
+sources:
+  - name: "Demo Publica"            # identificador de la fuente (aparece en logs)
+    type: "m3u"
+    url: "https://example.invalid/demo/lista.m3u"   # URL ficticia
+    enabled: true
+    country: "MX"
+    language: "es"
+    default_group: "Demo"           # grupo para entradas sin group-title
+    # Catalogo al que pertenece esta fuente. Los catalogos se alimentan y
+    # validan todos; solo uno se publica a la vez (settings.active_catalog).
+    catalog: "demo"
+    headers:
+      User-Agent: "VLC/3.0.20"
+    timeout_s: 20
+
+  - name: "Lista Local"             # tambien acepta rutas absolutas de archivo
+    type: "m3u"
+    url: "/config/mi_lista_local.m3u"
+    enabled: false
+    default_group: "Local"
+
+# ---------------------------------------------------------------------------
+# Canales sueltos (metadatos completos; tienen prioridad sobre las listas)
+# ---------------------------------------------------------------------------
+channels:
+  - name: "Canal Demo Uno"
+    url: "https://example.invalid/demo/uno/master.m3u8"
+    tvg_id: "demo.uno.mx"
+    tvg_name: "Canal Demo Uno"
+    group: "Demo"
+    logo: "https://example.invalid/logos/uno.png"
+    country: "MX"
+    language: "es"
+    # Perfil de transcodificacion opcional: copy | h264 | aac | auto
+    profile: "auto"
+
+  - name: "Canal Demo Dos"
+    url: "https://example.invalid/demo/dos/index.m3u8"
+    tvg_id: "demo.dos.mx"
+    group: "Demo"
+    logo: ""
+    country: "MX"
+    language: "es"
+
+  # Ejemplo de canal cifrado / DRM. Se INCLUYE y se marca en /status,
+  # pero NO se puede reproducir por copia de flujo. Ver DISCLAIMER.md.
+  - name: "Canal Demo DRM"
+    url: "https://example.invalid/demo/drm/master.mpd"
+    tvg_id: "demo.drm.mx"
+    group: "Demo"
+    country: "MX"
+    language: "es"
+
+# ---------------------------------------------------------------------------
+# Guia (EPG): fuentes XMLTV publicas y mapeo
+# ---------------------------------------------------------------------------
+epg:
+  refresh_hours: 12
+  sources:
+    - name: "EPG Demo"
+      url: "https://example.invalid/epg/demo.xml.gz"   # acepta .xml o .xml.gz
+      enabled: true
+      # Paises cubiertos; solo informativo
+      country: "MX"
+
+      # Mapeo explicito tvg-id_nuestro -> id_en_la_guia.
+      # Necesario cuando los espacios de nombres no coinciden (lo normal).
+      # Si esta vacio, el servicio empata por NOMBRE normalizado.
+      mappings:
+        "demo.uno.mx": "DemoUno.example"
+        "demo.dos.mx": "DemoDos.example"
+
+# ---------------------------------------------------------------------------
+# Ajustes del pipeline (opcionales; los del .env tienen prioridad)
+# ---------------------------------------------------------------------------
+settings:
+  # Catalogo visible al arrancar. Vacio o "todos" = publicarlos juntos.
+  active_catalog: "demo"
+  probe_timeout_s: 10
+  probe_workers: 8
+  probe_mode: "liveness"        # liveness | ffprobe
+  include_protected: true       # incluye cifrados/DRM/auth, marcados
+  health_interval_s: 300
+  health_fails_to_disable: 3
+  health_oks_to_enable: 2
+  health_backoff_base_s: 5
+  health_backoff_max_s: 120
+  hwaccel: "auto"               # auto | vaapi | qsv | cpu | off
+  max_transcodes: 2
+  # Limpieza de nombres: patrones que se recortan del nombre del canal
+  strip_patterns:
+    - "\\s*\\(\\d{3,4}p\\)"
+    - "\\s*\\[(HD|FHD|SD|UHD|4K)\\]"
+    - "\\s*\\b(FHD|UHD|4K)\\b"
+  # Grupos que se descartan completos (regex, ^...$)
+  group_exclude:
+    - "^(Adultos?|XXX)$"
