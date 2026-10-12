@@ -175,7 +175,17 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/channels")
     async def channels_json() -> list[dict[str, Any]]:
-        return [ch.as_dict() for ch in state.channel_list()]
+        """Catalogo en JSON SIN la URL de origen.
+
+        - Important: ``source_url`` se OMITE a proposito. Esta ruta no pide
+          credenciales (Jellyfin no manda cabeceras) y las URLs de origen son
+          justo lo que el proxy /stream existe para no exponer. El campo sigue
+          en ``/data/state.json``, que es un archivo del host.
+        """
+        return [
+            {k: v for k, v in ch.as_dict().items() if k != "source_url"}
+            for ch in state.channel_list()
+        ]
 
     @app.get("/catalogs")
     async def catalogs() -> dict[str, Any]:

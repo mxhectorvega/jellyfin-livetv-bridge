@@ -8,19 +8,24 @@ rompe, se rompe una medicion, no una opinion.
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src import probe as probe_mod
 from src.api import AppState, create_app
 from src.config import Settings
-from src.epg import _parse_time
+from src.epg import _parse_time, parse_xmltv
 from src.health import HealthMonitor
+from src.ingest import parse_m3u, title_of_extinf
 from src.models import Channel, ProbeResult
+from src.normalize import clean_name
 from src.playlist import build_m3u, m3u_attr
 from src.relay import MAX_CLAVES, MAX_VISTOS, RelayHLS, RelayPool, Segmento
+from src.transcode import plan_for
 
 
 # ---------------------------------------------------------------------------
@@ -340,3 +345,164 @@ def test_sin_token_configurado_todo_pasa(settings: Settings):
     settings.api_token = ""
     client = TestClient(create_app(_state(settings)))
     assert client.post("/reload").status_code == 503   # sin pipeline enlazado, no 401
+
+
+# ---------------------------------------------------------------------------
+# INGESTA: la coma del #EXTINF (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_title_of_extinf_corta_en_la_ultima_coma_fuera_de_comillas():
+    """Antes: ``re.search(r",\\s*(.+?)\\s*$")`` casaba en la PRIMERA coma.
+
+    Medido con ``tvg-name="Canal, Uno"``: el nombre salia
+    ``'Uno" group-title="G",Canal Uno'``.
+    """
+    linea = ('#EXTINF:-1 tvg-id="a.mx" tvg-name="Canal, Uno" '
+             'group-title="News, Weather",Canal Uno')
+    assert title_of_extinf(linea) == "Canal Uno"
+    canales = parse_m3u("#EXTM3U\n" + linea + "\nhttp://x/1.m3u8\n")
+    assert canales[0].name == "Canal Uno"
+    assert canales[0].tvg_name == "Canal, Uno"
+    assert canales[0].group == "News, Weather"
+
+
+def test_title_of_extinf_sin_coma_devuelve_vacio():
+    assert title_of_extinf('#EXTINF:-1 tvg-id="a.mx"') == ""
+
+
+def test_parse_m3u_sin_titulo_cae_al_tvg_name():
+    linea = '#EXTINF:-1 tvg-id="a.mx" tvg-name="Respaldo"'
+    assert parse_m3u("#EXTM3U\n" + linea + "\nhttp://x/1.m3u8\n")[0].name == "Respaldo"
+
+
+# ---------------------------------------------------------------------------
+# NORMALIZE: nombre compuesto solo de etiquetas
+# ---------------------------------------------------------------------------
+def test_clean_name_avisa_cuando_solo_hay_etiqueta(caplog):
+    """El fallback al original es deliberado; lo que faltaba era el rastro."""
+    with caplog.at_level(logging.WARNING):
+        assert clean_name("(720p)") == "(720p)"
+    assert any("etiquetas de calidad" in r.message for r in caplog.records)
+
+
+def test_clean_name_normal_sigue_limpiando():
+    assert clean_name("Canal 5 (1080p)") == "Canal 5"
+
+
+# ---------------------------------------------------------------------------
+# TRANSCODE: lista BLANCA (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_plan_codecs_desconocidos_no_se_copian(settings: Settings):
+    """Antes, lista negra: vc1/theora/vp8 salian por ``-c copy`` a mpegts."""
+    settings.hwaccel = "cpu"
+    for codec in ("vc1", "theora", "vp8", "hevc", "mpeg2video"):
+        ch = Channel(name="A", source_url="u",
+                     probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"))
+        assert plan_for(ch, settings).copy_video is False, codec
+
+
+def test_plan_h264_y_avc1_siguen_copiando(settings: Settings):
+    settings.hwaccel = "cpu"
+    for codec in ("h264", "avc1"):
+        ch = Channel(name="A", source_url="u",
+                     probe=ProbeResult(accessible=True, video_codec=codec, audio_codec="aac"))
+        assert plan_for(ch, settings).copy_video is True, codec
+
+
+def test_plan_audio_desconocido_no_se_copia(settings: Settings):
+    settings.hwaccel = "cpu"
+    ch = Channel(name="A", source_url="u",
+                 probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="opus"))
+    plan = plan_for(ch, settings)
+    assert plan.copy_video is True and plan.copy_audio is False
+
+
+# ---------------------------------------------------------------------------
+# CONFIG: rangos (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_puerto_fuera_de_rango_usa_el_default(monkeypatch):
+    """Antes: ``LVB_PORT=99999`` pasaba y el bind reventaba con OverflowError."""
+    monkeypatch.setenv("LVB_PORT", "99999")
+    assert Settings.from_env().port == 8581
+
+
+def test_valores_negativos_o_cero_usan_el_default(monkeypatch):
+    monkeypatch.setenv("LVB_RELAY_IDLE_S", "-5")
+    monkeypatch.setenv("LVB_MAX_TRANSCODES", "-1")
+    monkeypatch.setenv("LVB_PROBE_WORKERS", "0")
+    s = Settings.from_env()
+    assert s.relay_idle_s == 900.0
+    assert s.max_transcodes == 2
+    assert s.probe_workers == 2
+
+
+def test_valor_valido_en_rango_no_se_toca(monkeypatch):
+    monkeypatch.setenv("LVB_PROBE_WORKERS", "3")
+    monkeypatch.setenv("LVB_PORT", "9000")
+    s = Settings.from_env()
+    assert s.probe_workers == 3 and s.port == 9000
+
+
+# ---------------------------------------------------------------------------
+# EPG: bomba de entidades (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_parse_xmltv_rechaza_entidades_internas():
+    """Medido: ~250 B de entrada expandian a 10,000 caracteres."""
+    bomba = ('<?xml version="1.0"?><!DOCTYPE tv [<!ENTITY a "AAAAAAAAAA">'
+             '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+             '<tv><channel id="x"><display-name>&b;</display-name></channel></tv>')
+    with pytest.raises(ValueError):
+        parse_xmltv(bomba.encode())
+
+
+def test_parse_xmltv_acepta_el_doctype_normal():
+    """El DOCTYPE que apunta al DTD es legitimo y NO se bloquea."""
+    from datetime import datetime, timedelta, timezone
+
+    ahora = datetime.now(timezone.utc) + timedelta(hours=1)
+    sello = ahora.strftime("%Y%m%d%H%M%S")
+    documento = (
+        '<?xml version="1.0"?><!DOCTYPE tv SYSTEM "xmltv.dtd">'
+        '<tv><channel id="uno.mx"><display-name>Uno</display-name></channel>'
+        f'<programme start="{sello} +0000" stop="{sello} +0000" channel="uno.mx">'
+        '<title>Prueba</title></programme></tv>'
+    )
+    bundle = parse_xmltv(documento.encode())
+    assert "uno.mx" in bundle.channels
+    assert bundle.programmes.get("uno.mx")
+
+
+# ---------------------------------------------------------------------------
+# HTTP: tope de descompresion (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_gunzip_acotado_corta_la_expansion():
+    """Antes el tope se aplicaba al comprimido: 203,860 B -> 200 MB (1029x)."""
+    import gzip as _gzip
+
+    from src import util
+
+    carga = b"\x00" * (2 * 1024 * 1024)
+    comprimido = _gzip.compress(carga)
+    assert len(comprimido) < 4096
+    with pytest.raises(RuntimeError):
+        util._gunzip_acotado(comprimido, 1024, "http://x/g.gz")
+    assert util._gunzip_acotado(comprimido, len(carga) + 1, "http://x/g.gz") == carga
+
+
+# ---------------------------------------------------------------------------
+# API: /channels no publica la URL de origen (auditoria 2026-10-12)
+# ---------------------------------------------------------------------------
+def test_channels_no_expone_source_url(settings: Settings):
+    ch = Channel(
+        id="uno.mx", name="Canal Uno", tvg_id="uno.mx",
+        source_url="http://origen.invalid/con-token-secreto.m3u8",
+        probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
+    )
+    state = AppState(settings=settings)
+    state.monitor = HealthMonitor(settings)
+    state.put_channels([ch])
+    client = TestClient(create_app(state))
+    datos = client.get("/channels").json()
+    assert datos and "source_url" not in datos[0]
+    assert datos[0]["id"] == "uno.mx"
+    assert "con-token-secreto" not in client.get("/channels").text
+    assert "con-token-secreto" not in client.get("/status").text

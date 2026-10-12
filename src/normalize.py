@@ -50,7 +50,14 @@ def clean_name(name: str, patterns: list[str] | None = None) -> str:
             text = re.sub(pattern, "", text, flags=re.I)
         except re.error:
             log.warning("patron de limpieza invalido", extra={"detail": pattern})
-    return _WS_RE.sub(" ", text).strip(" -|") or name.strip()
+    limpio = _WS_RE.sub(" ", text).strip(" -|")
+    if not limpio:
+        # El fallback al original es DELIBERADO (un canal sin nombre visible es
+        # peor que uno con la etiqueta pegada), pero deja rastro: el caso real
+        # es un nombre compuesto SOLO por una etiqueta de calidad ("(720p)").
+        log.warning("nombre compuesto solo de etiquetas de calidad", extra={"channel": name})
+        return (name or "").strip()
+    return limpio
 
 
 def normalize_tvg_id(tvg_id: str) -> str:

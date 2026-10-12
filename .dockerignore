@@ -1,0 +1,22 @@
+# Contexto de build acotado a lo que la imagen COPIA de verdad:
+#   requirements.txt, src/ y los .md/.LICENSE.
+# Todo lo demas sobra y ademas lleva secretos: .env (modo 600), config/ con las
+# fuentes reales, data/ con state.json y respaldos .bak que traen URLs de
+# streams. Sin este archivo, ese arbol entero viaja al daemon en cada build.
+.git
+.gitignore
+.github
+.venv
+.pytest_cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.env
+.env.*
+config/
+data/
+tests/
+*.bak
+*.bak-*
+*.tgz
+*.log

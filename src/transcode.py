@@ -29,8 +29,10 @@ log = get_logger("transcode")
 
 COPY_VIDEO = {"h264", "avc1"}
 COPY_AUDIO = {"aac", "mp4a"}
-TRANSCODE_VIDEO = {"hevc", "h265", "mpeg2video", "mpeg4", "vp9", "av1"}
-TRANSCODE_AUDIO = {"ac3", "eac3", "mp2", "mp3", "pcm_s16le", "opus", "flac", "dts"}
+# Antes habia dos listas NEGRAS (TRANSCODE_VIDEO / TRANSCODE_AUDIO) y el plan
+# copiaba todo lo que NO estuviera en ellas: un codec no previsto (vc1, theora,
+# vp8) acababa en `-c copy` dentro de `-f mpegts`. Ahora se copia SOLO lo que el
+# muxer MPEG-TS lleva sin reencodear, que es lo que estas dos listas declaran.
 
 
 @dataclass
@@ -88,8 +90,11 @@ def plan_for(channel: Channel, settings: Settings) -> TranscodePlan:
     if settings.hwaccel == "off" or profile == "copy":
         return TranscodePlan(True, True, "", "perfil copy / hwaccel off")
 
-    copy_video = probe.video_codec.lower() not in TRANSCODE_VIDEO if probe.video_codec else True
-    copy_audio = probe.audio_codec.lower() not in TRANSCODE_AUDIO if probe.audio_codec else True
+    # LISTA BLANCA, no lista negra: solo se copia lo que el muxer MPEG-TS
+    # soporta tal cual. Sin metadatos (codec vacio) se copia: recodificar a
+    # ciegas es justo lo que hace Jellyfin cuando su sonda falla.
+    copy_video = probe.video_codec.lower() in COPY_VIDEO if probe.video_codec else True
+    copy_audio = probe.audio_codec.lower() in COPY_AUDIO if probe.audio_codec else True
 
     if profile == "h264":
         copy_video = False

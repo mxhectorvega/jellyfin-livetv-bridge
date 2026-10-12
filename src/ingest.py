@@ -31,8 +31,27 @@ log = get_logger("ingest")
 
 # Atributos de #EXTINF: clave="valor" (tvg-id, tvg-name, tvg-logo, group-title...)
 _ATTR_RE = re.compile(r'([A-Za-z0-9_-]+)\s*=\s*"([^"]*)"')
-# Nombre visible: lo que va despues de la ultima coma del #EXTINF
-_NAME_RE = re.compile(r",\s*(.+?)\s*$")
+
+
+def title_of_extinf(line: str) -> str:
+    """Titulo visible del #EXTINF: lo que va tras la ULTIMA coma FUERA de comillas.
+
+    - Discussion: la version anterior usaba ``re.search(r",\\s*(.+?)\\s*$")``,
+      que casa en la PRIMERA coma. Con un atributo citado que lleva coma dentro
+      (``tvg-name="Canal, Uno"``, ``group-title="News, Weather"``) el nombre
+      salia con el resto de la linea pegado: medido,
+      ``'Uno" group-title="G",Canal Uno'``. Se recorre de derecha a izquierda
+      hasta la primera coma que NO este dentro de comillas.
+    - Returns: el titulo sin espacios sobrantes, o ``""`` si no hay coma util.
+    """
+    en_comillas = False
+    for i in range(len(line) - 1, -1, -1):
+        caracter = line[i]
+        if caracter == '"':
+            en_comillas = not en_comillas
+        elif caracter == "," and not en_comillas:
+            return line[i + 1:].strip()
+    return ""
 
 
 def load_config_file(path: str | Path) -> dict[str, Any]:
@@ -70,8 +89,7 @@ def parse_m3u(text: str, source_name: str = "", defaults: dict[str, Any] | None 
             continue
         if line.startswith("#EXTINF"):
             attrs = {k.lower(): v for k, v in _ATTR_RE.findall(line)}
-            name_match = _NAME_RE.search(line)
-            attrs["_name"] = name_match.group(1) if name_match else attrs.get("tvg-name", "")
+            attrs["_name"] = title_of_extinf(line) or attrs.get("tvg-name", "")
             pending = attrs
             continue
         if line.startswith("#"):

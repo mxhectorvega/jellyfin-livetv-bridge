@@ -41,6 +41,13 @@ EPOCH_MIN = datetime(1970, 1, 1, tzinfo=timezone.utc)
 # minutos) para no volver a depender de posiciones fijas.
 _TIME_RE = re.compile(r"^(\d{14})\s*(?:(Z)|([+-])(\d{2})(\d{2}))?$")
 
+# Declarar ENTIDADES dentro del propio documento es la via de la "bomba XML"
+# (expansion exponencial: medido, ~250 B de entrada produjeron 10,000 caracteres
+# de salida en ElementTree). Un XMLTV legitimo puede traer
+# ``<!DOCTYPE tv SYSTEM "xmltv.dtd">``, pero NO necesita declarar entidades, asi
+# que se rechaza solo eso y no el DOCTYPE.
+_ENTIDAD_RE = re.compile(rb"<!\s*ENTITY", re.I)
+
 
 @dataclass
 class EpgBundle:
@@ -90,6 +97,11 @@ def parse_xmltv(xml_bytes: bytes) -> EpgBundle:
       no arrastrar guias de 260 MB.
     """
     bundle = EpgBundle()
+    if _ENTIDAD_RE.search(xml_bytes):
+        raise ValueError(
+            "XMLTV con declaracion de ENTIDADES: se rechaza (bomba XML). "
+            "Ninguna guia legitima necesita entidades internas."
+        )
     root = ET.fromstring(xml_bytes)
     now = datetime.now(timezone.utc)
     earliest = now - timedelta(hours=WINDOW_PAST_HOURS)

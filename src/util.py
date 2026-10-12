@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import gzip
-import io
 import json
 import logging
 import os
@@ -19,6 +17,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -26,6 +25,11 @@ from typing import Any, Iterable, Sequence
 DEFAULT_USER_AGENT = "jellyfin-livetv-bridge/0.1 (+https://example.invalid)"
 DEFAULT_TIMEOUT = 20.0
 MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024  # 64 MB: guias grandes pero no infinitas
+# Tope de la SALIDA ya descomprimida, mayor que el de entrada a proposito: la
+# guia de EPGTalk Latino pesa ~10.5 MB comprimida y 109 MB descomprimida, y
+# recortarla a 64 MB romperia la guia de Imagen TV. Lo que se corta es la
+# expansion desmedida (medido: 203,860 B de gzip -> 200 MB, 1029x).
+MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -86,12 +90,29 @@ def monotonic() -> float:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
+def _gunzip_acotado(data: bytes, max_bytes: int, url: str) -> bytes:
+    """Descomprime gzip con TOPE sobre la SALIDA, no solo sobre la entrada.
+
+    - Discussion: el tope de ``max_bytes`` se aplicaba al comprimido, asi que el
+      pico residente quedaba sin limite: medido, un gzip de 203,860 B expande a
+      200 MB (1029x). Se descomprime con ``zlib`` pidiendo como maximo
+      ``max_bytes + 1`` bytes y se exige que no quede cola.
+    - Throws: ``RuntimeError`` si la salida excede ``max_bytes``.
+    """
+    obj = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    plano = obj.decompress(data, max_bytes + 1)
+    if len(plano) > max_bytes or obj.unconsumed_tail:
+        raise RuntimeError(f"gzip expande por encima de {max_bytes} bytes en {url}")
+    return plano
+
+
 def http_get(
     url: str,
     timeout: float = DEFAULT_TIMEOUT,
     headers: dict[str, str] | None = None,
     max_bytes: int = MAX_DOWNLOAD_BYTES,
     byte_range: str | None = None,
+    max_decompressed: int = MAX_DECOMPRESSED_BYTES,
 ) -> bytes:
     """Descarga una URL y devuelve bytes (descomprime gzip si aplica).
 
@@ -125,7 +146,7 @@ def http_get(
     if len(data) > max_bytes:
         raise RuntimeError(f"respuesta mayor a {max_bytes} bytes en {url}")
     if data[:2] == b"\x1f\x8b":
-        data = gzip.decompress(data)
+        data = _gunzip_acotado(data, max_decompressed, url)
     return data
 
 
