@@ -206,7 +206,7 @@ def canales_para_salud(state: AppState) -> list[Channel]:
 
 async def _serve(state: AppState) -> None:
     app = create_app(state)
-    # bind_ip manda sobre host: LVB_BIND_IP=10.0.0.21 publica SOLO en la LAN.
+    # bind_ip manda sobre host: LVB_BIND_IP=192.168.1.50 publica SOLO en la LAN.
     # Vacio => LVB_HOST (0.0.0.0 por omision).
     host = state.settings.bind_ip or state.settings.host
     config = uvicorn.Config(

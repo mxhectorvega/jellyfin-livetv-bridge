@@ -38,7 +38,7 @@ services:
     network_mode: host
     # ports:
     #   # host:contenedor — se publica en la IP de LAN del host (no 0.0.0.0).
-    #   - "${LVB_BIND_IP:-10.0.0.21}:8581:8581"
+    #   - "${LVB_BIND_IP:-192.168.1.50}:8581:8581"
     # Descomenta SOLO si el host tiene /dev/dri con VAAPI funcional (i965):
     # devices:
     #   - /dev/dri:/dev/dri

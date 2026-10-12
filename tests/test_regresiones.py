@@ -218,10 +218,10 @@ def test_pool_barrer_apaga_el_ocioso_que_ya_se_uso():
 # CONFIG: bind y token
 # ---------------------------------------------------------------------------
 def test_bind_ip_y_api_token_desde_entorno(monkeypatch):
-    monkeypatch.setenv("LVB_BIND_IP", "10.0.0.21")
+    monkeypatch.setenv("LVB_BIND_IP", "192.168.1.50")
     monkeypatch.setenv("LVB_API_TOKEN", "secreto-de-prueba")
     s = Settings.from_env()
-    assert s.bind_ip == "10.0.0.21"
+    assert s.bind_ip == "192.168.1.50"
     assert s.api_token == "secreto-de-prueba"
     # El token NO puede salir en la config que publica /status.
     assert "api_token" not in s.redacted()
