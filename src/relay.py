@@ -107,7 +107,7 @@ def _http(url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int 
 class RelayHLS:
     """Lee un origen HLS y mantiene un colchón de segmentos reemisible."""
 
-    def __init__(self, fuentes, user_agent: str = "", resolver=None) -> None:
+    def __init__(self, fuentes, user_agent: str = "", resolver=None, nombre: str = "") -> None:
         """``fuentes`` es la principal seguida de sus respaldos (en orden).
 
         - Discussion: si la principal deja de responder ``FALLOS_PARA_CAMBIAR``
@@ -118,7 +118,11 @@ class RelayHLS:
         - ``resolver(idx)`` devuelve la URL viva de la fuente ``idx`` (para
           refrescar tokens como el de TV Azteca). Sin resolver, se usa la URL
           tal cual.
+        - ``nombre`` es el id del canal y va en TODAS las líneas de log. Sin él,
+          un "re-resolviendo origen HTTP 404" repetido no dice QUÉ canal está
+          caído: medido en producción, varias horas de ruido sin saber a quién.
         """
+        self.nombre = nombre
         self.fuentes = [u for u in ([fuentes] if isinstance(fuentes, str) else fuentes) if u]
         if not self.fuentes:
             raise ValueError("el rele necesita al menos una fuente")
@@ -258,9 +262,11 @@ class RelayHLS:
                 try:
                     return self.resolver(self._indice)      # resolver sin ``forzar``
                 except Exception as exc:  # noqa: BLE001
-                    log.error("relay: no se pudo resolver el origen", extra={"detail": str(exc)[:200]})
+                    log.error("relay: no se pudo resolver el origen",
+                              extra={"channel": self.nombre, "detail": str(exc)[:200]})
             except Exception as exc:  # noqa: BLE001 — un token caido no debe tumbarlo
-                log.error("relay: no se pudo resolver el origen", extra={"detail": str(exc)[:200]})
+                log.error("relay: no se pudo resolver el origen",
+                          extra={"channel": self.nombre, "detail": str(exc)[:200]})
         return self.fuentes[self._indice]
 
     def _contar_fallo(self) -> None:
@@ -287,7 +293,8 @@ class RelayHLS:
                 self._cambios += 1
                 log.warning(
                     "relay: cambiando de fuente",
-                    extra={"detail": f"indice={self._indice} {self.fuentes[self._indice][:70]}"},
+                    extra={"channel": self.nombre,
+                           "detail": f"indice={self._indice} {self.fuentes[self._indice][:70]}"},
                 )
             else:
                 self._fallos += 1
@@ -371,7 +378,8 @@ class RelayHLS:
                         self._refrescos += 1
                         self._variante = ""
                         self._refrescar_token = True
-                    log.warning("relay: re-resolviendo origen", extra={"detail": f"HTTP {exc.code}"})
+                    log.warning("relay: re-resolviendo origen",
+                                extra={"channel": self.nombre, "detail": f"HTTP {exc.code}"})
                 else:
                     self._error = f"HTTP {exc.code}"
                 self._contar_fallo()
@@ -543,7 +551,8 @@ class RelayHLS:
                 idx = self._frente + 1
             self._clientes[cid] = (idx, time.monotonic())
             self._tuvo_clientes = True
-        log.info("relay: cliente enganchado", extra={"detail": f"idx={idx} frente={self._frente}"})
+        log.info("relay: cliente enganchado",
+                 extra={"channel": self.nombre, "detail": f"idx={idx} frente={self._frente}"})
 
         try:
             while not self._stop.is_set():
@@ -564,7 +573,8 @@ class RelayHLS:
             with self._lock:
                 self._clientes.pop(cid, None)
                 self._ultimo_cliente = time.monotonic()
-            log.info("relay: cliente desenganchado", extra={"detail": f"idx={idx}"})
+            log.info("relay: cliente desenganchado",
+                     extra={"channel": self.nombre, "detail": f"idx={idx}"})
 
     # ------------------------------------------------------------ introspeccion
     @property
@@ -607,7 +617,7 @@ class RelayPool:
             if relay is None or relay.fuentes != lista:
                 if relay is not None:
                     relay.detener()
-                relay = RelayHLS(lista, user_agent, resolver=resolver)
+                relay = RelayHLS(lista, user_agent, resolver=resolver, nombre=clave)
                 relay.arrancar()
                 self._relays[clave] = relay
             elif resolver is not None:

@@ -249,6 +249,56 @@ def test_valor_invalido_avisa_y_usa_el_default(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# RELAY: trazabilidad en el log
+# ---------------------------------------------------------------------------
+def test_el_pool_etiqueta_el_rele_con_el_canal():
+    """Sin el nombre, un "re-resolviendo origen 404" repetido no dice de quién."""
+    pool = RelayPool()
+    try:
+        relay = pool.get("canal.prueba.mx", "http://127.0.0.1:9/x.m3u8")
+        assert relay.nombre == "canal.prueba.mx"
+    finally:
+        pool.detener_todos()
+
+
+def test_el_aviso_de_cambio_de_fuente_lleva_el_canal(caplog):
+    import logging
+
+    r = RelayHLS(["http://127.0.0.1:9/a.m3u8", "http://127.0.0.1:9/b.m3u8"], nombre="canal.x")
+    with caplog.at_level(logging.WARNING):
+        r._contar_fallo()
+    registro = next(reg for reg in caplog.records if reg.message == "relay: cambiando de fuente")
+    assert getattr(registro, "channel", "") == "canal.x"
+
+
+# ---------------------------------------------------------------------------
+# MAIN: el health-check no duplica el barrido del pipeline
+# ---------------------------------------------------------------------------
+def test_canales_para_salud_no_sondea_durante_el_pipeline(settings: Settings):
+    """Pipeline (2 obreros) + monitor a la vez = 3 sondas sobre el mismo CDN.
+
+    La medicion del propio proyecto dice que ahi el CDN empieza a devolver
+    manifiestos vacios. El monitor espera a que el pipeline termine.
+    """
+    from src.main import canales_para_salud
+
+    state = _state(settings)
+    state.pipeline_running = False
+    assert len(canales_para_salud(state)) == 1
+    state.pipeline_running = True
+    assert canales_para_salud(state) == []
+
+
+def test_check_all_con_lista_vacia_no_hace_nada(settings: Settings):
+    import asyncio
+
+    monitor = HealthMonitor(settings)
+    report = asyncio.run(monitor.check_all([]))
+    assert report.checked == 0
+    assert monitor.snapshot()["canales"] == {}
+
+
+# ---------------------------------------------------------------------------
 # API: token en los POST, GET siempre abiertos
 # ---------------------------------------------------------------------------
 def _state(settings: Settings) -> AppState:

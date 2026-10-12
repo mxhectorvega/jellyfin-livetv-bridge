@@ -178,6 +178,22 @@ async def barrer_forever(state: AppState, interval_s: float = 300.0) -> None:
             log.warning("barrido de reles fallido", extra={"detail": str(exc)[:200]})
 
 
+def canales_para_salud(state: AppState) -> list[Channel]:
+    """Canales que vigila el health-check en esta vuelta.
+
+    - Discussion: mientras el pipeline corre (una corrida completa cada 12 h,
+      ~11 min sobre 208 canales) ya se validan TODOS los canales. Dejar que el
+      monitor los sondee a la vez triplica la carga sobre los mismos CDN, y la
+      medicion del propio proyecto dice que la concurrencia alta hace que
+      devuelvan manifiestos vacios (1/12 accesibles con 6 hilos contra 22/24 con
+      2). Con la lista vacia, ``check_all`` no hace nada y el monitor espera a la
+      vuelta siguiente.
+    - Note: el pipeline aplica la misma sonda y el mismo backoff, asi que no se
+      pierde vigilancia: solo se deja de duplicarla.
+    """
+    return [] if state.pipeline_running else state.channel_list()
+
+
 async def _serve(state: AppState) -> None:
     app = create_app(state)
     # bind_ip manda sobre host: LVB_BIND_IP=10.0.0.21 publica SOLO en la LAN.
@@ -229,7 +245,7 @@ async def main_async() -> None:
 
     tasks = [
         asyncio.create_task(pipeline_forever(state, interval_s)),
-        asyncio.create_task(state.monitor.run_forever(state.channel_list)),
+        asyncio.create_task(state.monitor.run_forever(lambda: canales_para_salud(state))),
         asyncio.create_task(barrer_forever(state, state.settings.health_interval_s)),
         asyncio.create_task(_serve(state)),
     ]
