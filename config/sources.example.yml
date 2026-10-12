@@ -42,6 +42,10 @@ channels:
     tvg_id: "demo.uno.mx"
     tvg_name: "Canal Demo Uno"
     group: "Demo"
+    # Catalog al que pertenece. IMPORTANTE: si no lo pones, el canal cae en
+    # "manual" y NO se publica cuando active_catalog apunta a otro. Los canales
+    # sueltos de esta plantilla van al mismo catalogo que la fuente de arriba.
+    catalog: "demo"
     logo: "https://example.invalid/logos/uno.png"
     country: "MX"
     language: "es"
@@ -52,6 +56,7 @@ channels:
     url: "https://example.invalid/demo/dos/index.m3u8"
     tvg_id: "demo.dos.mx"
     group: "Demo"
+    catalog: "demo"
     logo: ""
     country: "MX"
     language: "es"
@@ -62,6 +67,7 @@ channels:
     url: "https://example.invalid/demo/drm/master.mpd"
     tvg_id: "demo.drm.mx"
     group: "Demo"
+    catalog: "demo"
     country: "MX"
     language: "es"
 
@@ -89,9 +95,15 @@ epg:
 # ---------------------------------------------------------------------------
 settings:
   # Catalogo visible al arrancar. Vacio o "todos" = publicarlos juntos.
+  # Tiene que coincidir con el `catalog:` de tus fuentes y canales, o el M3U
+  # sale VACIO (los catalogos que no son el activo se alimentan y se validan,
+  # pero no se publican).
   active_catalog: "demo"
   probe_timeout_s: 10
-  probe_workers: 8
+  # 2, no 8: medido contra el CDN de Pluto, con muchos hilos el CDN devuelve
+  # manifiestos VACIOS y el barrido miente (1/12 con 6 hilos contra 22/24 con
+  # 2). Con catalogos chicos da igual, pero el default es el medido.
+  probe_workers: 2
   probe_mode: "liveness"        # liveness | ffprobe
   include_protected: true       # incluye cifrados/DRM/auth, marcados
   health_interval_s: 300
