@@ -28,6 +28,49 @@ conocidas"). Este servicio entrega el flujo por copia con `-fflags +genpts` e
 intenta reconectar, que cubre el caso comun, no el splicing de anuncios que
 cambia de host.
 
+## De dónde salen los canales (el repo NO trae ninguno)
+
+**Este repositorio no incluye listas de streams ni canales.** Trae el motor:
+lee listas M3U/HLS que tú aportas, las valida, las ordena, arma la guía y lo
+sirve todo a Jellyfin como tuner + guía. Las fuentes son tuyas.
+
+Por eso `config/sources.example.yml` apunta a `example.invalid`, un dominio
+reservado por RFC 2606 que **nunca resuelve**. Si arrancas el servicio sin
+tocarla vas a ver 3 canales demo que no reproducen, y eso es lo correcto: están
+para que veas la forma del archivo, no para ver TV.
+
+```
+arranque con la plantilla tal cual:
+  GET /catalogs   {"activo":"demo","publicados":3}
+  GET /status     demo.uno.mx  accesible=False
+                  fallo de red en https://example.invalid/...
+```
+
+Eso no es un fallo: es el servicio diciéndote **por qué** no reproduce cada
+canal. Con tus fuentes, el M3U sale con tus canales.
+
+### De dónde sacar fuentes
+
+```
+listas M3U    iptv-org publica un catalogo abierto y mantenido:
+              por pais   https://iptv-org.github.io/iptv/countries/mx.m3u
+              completo   https://iptv-org.github.io/iptv/index.m3u
+              API        https://iptv-org.github.io/api/streams.json
+              (la API sirve ademas para IDENTIFICAR un stream: mapea
+               URL -> id y nombre canonicos, sin adivinar)
+archivos      una lista tuya en disco; en sources.yml acepta ruta
+propios       absoluta:  url: "/ruta/a/mi/lista.m3u"
+guia XMLTV    iptv-epg.org, epgshare01.online, i.mjh.nz
+```
+
+Y una advertencia que nace de este proyecto: **no pegues una lista sin
+vetarla**. Los manifiestos mienten —un master de plantilla contesta 200 con un
+ladder falso (medido: 38 de 40 «vivos» estaban muertos)—. La sonda del propio
+servicio baja bytes de verdad: `POST /reload` y mira `GET /status`.
+
+De dónde tiras y qué haces con esas fuentes es tu decisión y tu
+responsabilidad: ver `DISCLAIMER.md`.
+
 ## Estructura
 
 ```
