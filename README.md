@@ -314,6 +314,14 @@ Que hace y que no:
 - **Salta a la fuente alterna** declarada en el bloque `respaldo:` de
   `sources.yml` (con el colchon vacio al primer fallo; con colchon lleno, a los
   tres seguidos).
+- **Las alternas tambien las prueba la validacion, no solo el rele.** Si la
+  principal esta caida, `check_channel` recorre los respaldos EN ORDEN y el
+  canal sigue publicado mientras alguno viva; `/status` lo dice con
+  `via_respaldo`, y el reporte del pipeline con `por_respaldo`. Sin esto, un
+  canal con la principal muerta se deshabilitaba a los 3 fallos y el respaldo
+  nunca llegaba a ejecutarse (medido el 2026-10-12 con Canal 5).
+  Ojo: un respaldo HEVC obliga a Jellyfin a transcodificar, porque el rele copia
+  los segmentos tal cual.
 - **Cose el corte de un `EXT-X-DISCONTINUITY` por LINEA DE TIEMPO, no por host.**
   Al cambiar de fuente, `src/ts_splice.py` desplaza PCR, PTS y DTS para que la
   linea de tiempo continué, y marca `discontinuity_indicator` una vez por PID.

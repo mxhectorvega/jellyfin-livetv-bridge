@@ -8,6 +8,39 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+### Corregido
+
+- **La validacion solo miraba la URL principal.** Con el bloque `respaldo:`
+  declarado y la principal caida, el canal se marcaba inaccesible, el
+  health-check lo deshabilitaba a los 3 fallos y salia del M3U — asi que el
+  respaldo **nunca llegaba a ejecutarse**, porque el rele no arranca para un
+  canal que ya no se publica. Medido el 2026-10-12 con Canal 5.
+  Ahora `probe.check_channel()` prueba la principal y luego cada respaldo en
+  orden, y devuelve el primero que responde. Verificado en vivo: con la
+  principal muerta a proposito, `check_stream` da inaccesible y `check_channel`
+  encuentra el respaldo. `/status` expone `via_respaldo` y el pipeline reporta
+  `por_respaldo`.
+- **`config/sources.example.yml` publicaba CERO canales.** Declaraba
+  `active_catalog: demo` pero sus canales sueltos no llevaban `catalog:`, asi
+  que caian en `manual` y no se publicaba ninguno. Medido arrancando el servicio
+  con la plantilla tal cual: `publicados: 0`. Ahora `publicados: 3`.
+- Fuera la IP de LAN real de `docker-compose.yml`, `src/main.py` y las pruebas;
+  la despersonalizacion anterior se habia quedado en el README y el
+  `.env.example`.
+
+### Cambiado
+
+- **El orden del pipeline:** `ingest -> normalize -> respaldo -> probe` (antes
+  la sonda corria antes de asociar los respaldos, lo que hacia imposible lo de
+  arriba). Normalizar fija los ids estables; la sonda va despues.
+
+### Anadido
+
+- Seccion en el README: **«De donde salen los canales (el repo NO trae
+  ninguno)»**, con la salida real de arrancar la plantilla, donde conseguir
+  listas publicas (iptv-org, iptv-epg, epgshare01, i.mjh.nz) y el aviso de que
+  los manifiestos mienten.
+
 ## [0.1.0] — 2026-10-12
 
 Primera version publica. El servicio llevaba corriendo desde el 2026-10-10
