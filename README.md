@@ -46,9 +46,15 @@ src/
 config/sources.example.yml    plantilla (datos FICTICIOS)
 tests/                        pytest: ingesta, validacion, normalizacion, M3U, XMLTV
 tests/test_ts_splice.py       aritmetica de sellos byte a byte
+tests/test_estandares.py      pyproject vs requirements, version, regla de estilo
 tests/e2e_sintetico.py        banco E2E: origen real con ffmpeg, relé y AES-128
 tests/banco_ts.py             banco del cosido: mide con ffprobe sobre un TS real
-.github/workflows/tests.yml   CI: pytest en Python 3.12 y 3.13
+tests/banco_failover.py       banco del failover contra streams reales
+pyproject.toml                metadatos PEP 621 y la regla de estilo
+.editorconfig                 estilo para el editor, sin instalar nada
+.pre-commit-config.yaml       ruff y comprobaciones antes del commit
+.github/workflows/tests.yml   CI: pytest 3.12+3.13, ruff, y banco E2E
+CHANGELOG.md                  que cambio y cuando, en orden inverso
 ```
 
 ## Arranque rapido (Docker)
@@ -78,15 +84,48 @@ Rutas absolutas en todo: `/config` (entrada) y `/data` (salida).
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest -q
+python -m pytest -q                     # sin tocar la red: todo mockeado
+
+# El estilo se COMPRUEBA, no se pide por favor:
+ruff check . && ruff format --check .
 
 # Banco E2E: genera un HLS real con ffmpeg, lo sirve por HTTP y pasa la cadena
 # completa (ingesta -> relé -> failover -> AES-128). Necesita ffmpeg y openssl.
 .venv/bin/python tests/e2e_sintetico.py
+
+# Banco del cosido, sobre una captura real del relé:
+.venv/bin/python tests/banco_ts.py /ruta/a/captura.ts
+
+# Banco del failover, contra los streams REALES del catálogo. El segundo
+# argumento fuerza el respaldo a otro canal, porque los respaldos declarados
+# suelen vivir en el mismo CDN que su principal:
+.venv/bin/python tests/banco_failover.py <canal> [<canal_ajeno>]
 ```
 
-La suite de pytest **no toca la red** (todo mockeado): prueba logica. El banco
-E2E es lo que prueba el arranque de verdad.
+La suite de pytest prueba lógica. Los bancos prueban el comportamiento sobre
+bytes de verdad, y el E2E el arranque.
+
+## Estándares que se comprueban
+
+No basta con declararlos: cada uno tiene quién lo revise.
+
+```
+estilo    pyproject.toml fija 100 columnas y ruff lo comprueba
+          (job "estilo" del CI). .editorconfig y
+          .pre-commit-config.yaml para antes de que el commit salga.
+deps      tests/test_estandares.py exige que pyproject.toml y
+          requirements.txt declaren LO MISMO, y que la version del
+          modulo cuadre con la del paquete.
+video     ISO/IEC 13818-1 | ITU-T H.222.0 §2.4.3 y §2.4.3.6:
+          PCR, PTS y DTS del cosido al cambiar de fuente.
+HTTP      RFC 8216 §4 para el tipo de medio del M3U; HEAD
+          atendido, y 403 en vez de 409/451.
+XMLTV     validar_xmltv() revisa lo que el DTD exige ANTES de
+          escribir la guia: una que no valida no reemplaza a una
+          que si.
+docker    base fijada por digest, .dockerignore, corre sin root
+          y con healthcheck.
+```
 
 ## Fuente de TV Azteca integrada
 
@@ -255,6 +294,11 @@ Que hace y que no:
 - Los secretos (`.env`, `config/sources.yml`) estan en `.gitignore`. Las copias
   manuales de respaldo (`.bak`) tambien, porque suelen traer URLs de streams
   reales.
+- `config/sources.yml` y `data/state.json` van en modo **600**: traen las URLs
+  de origen, algunas con token firmado. El `.env` tambien. El servicio los
+  escribe asi (`write_atomic(..., modo=0o600)`), no depende del `umask`.
+- `GET /channels` **no** publica `source_url`: las URLs de origen son justo lo
+  que el proxy existe para no exponer.
 
 ## Configuracion
 

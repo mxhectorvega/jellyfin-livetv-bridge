@@ -1,0 +1,78 @@
+# Changelog
+
+Formato: [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+Versionado: [SemVer](https://semver.org/lang/es/).
+
+Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
+el comando y la salida estan en el commit que la introdujo.
+
+## [Sin publicar]
+
+## [0.1.0] — 2026-10-12
+
+Primera version publica. El servicio llevaba corriendo desde el 2026-10-10
+sirviendo 10 canales nacionales; lo que cambia aqui es que quedo medido,
+comprobado y con los estandares verificados por CI.
+
+### Anadido
+
+- **`src/ts_splice.py`**: cosido de la linea de tiempo de MPEG-TS. Al cambiar de
+  fuente, desplaza PCR, PTS y DTS (modulo 2**33) para que la fuente nueva
+  continue a la vieja, y marca `discontinuity_indicator` una vez por PID.
+  Norma: ISO/IEC 13818-1 | ITU-T H.222.0 §2.4.3 y §2.4.3.6.
+- **`tests/banco_ts.py`**: banco del cosido sobre un flujo real capturado del
+  rele. Mide con `ffprobe`, no con el propio modulo. Sin el cosido el salto era
+  de 1371.876 s; con el, 0.167 s y ya fuera del empalme.
+- **`tests/banco_failover.py`**: banco del failover contra los streams reales
+  del catalogo, con un proxy local que mata la fuente principal a media
+  reproduccion.
+- **`pyproject.toml`** (PEP 621) con la regla de estilo declarada: 100 columnas.
+- **`.editorconfig`** y **`.pre-commit-config.yaml`**.
+- **`tests/test_estandares.py`**: exige que `pyproject.toml` y
+  `requirements.txt` declaren las mismas dependencias y que la version del
+  modulo cuadre.
+- **`epg.validar_xmltv()`**: revisa la guia contra lo que el DTD de XMLTV exige
+  antes de escribirla.
+- Job **"estilo"** en CI: `ruff check` y `ruff format --check`.
+- `GET /channels` dejo de publicar `source_url`.
+
+### Cambiado
+
+- **El rele ya no se adelanta al tope del colchon cuando hay clientes.** El
+  lector se bajaba la playlist nueva entera al cambiar de fuente y `_podar()`
+  soltaba por la izquierda, que es donde esta el cliente. Medido: 24.1 s de
+  contenido que nadie consumio, y que el espectador veia como tiron.
+- **Tipo de medio de `/playlist.m3u`**: `audio/x-mpegurl` -> `audio/mpegurl`.
+  RFC 8216 §4: el Content-Type "MUST be application/vnd.apple.mpegurl or
+  audio/mpegurl". El que se servia no era ninguno de los dos.
+- **Codigos HTTP**: canal desactivado 409 -> 403; DRM 451 -> 403 (451 es para
+  restriccion LEGAL, no para algo irreproducible).
+- `/stream` drena el `stderr` de ffmpeg.
+- La imagen base del Dockerfile va fijada por digest.
+
+### Corregido
+
+- **`ingest.parse_m3u`**: el titulo del `#EXTINF` se cortaba en la PRIMERA coma.
+  Con `tvg-name="Canal, Uno"` el nombre salia `'Uno" group-title="G",Canal
+  Uno'`.
+- **`transcode.plan_for`**: usaba lista NEGRA, asi que `vc1`, `theora` y `vp8`
+  acababan en `-c copy` dentro de `-f mpegts`. Ahora es lista blanca.
+- **`config`**: validaba el tipo pero no el rango. `LVB_PORT=99999` pasaba y el
+  bind reventaba con `OverflowError`: pipeline arriba, API abajo y en silencio.
+- **`epg`**: XMLTV con entidades internas (bomba XML). ~250 B expandian a 10,000
+  caracteres.
+- **`util.http_get`**: el tope de descarga se aplicaba al comprimido, no a la
+  salida. Medido: 203,860 B de gzip -> 200 MB (1029x).
+- HEAD en `/playlist.m3u` y `/epg.xml`: una ruta GET no lo atiende y devolvia
+  405, que un cliente lee como caida.
+- Cinco imports muertos que el linter encontro.
+
+### Seguridad
+
+- `config/sources.yml` y `data/state.json` en modo 600.
+- `/channels` ya no expone las URLs de origen.
+- `.dockerignore`: el contexto de build mandaba `.env`, `config/` y `data/` al
+  daemon en cada build.
+
+[Sin publicar]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/releases/tag/v0.1.0
