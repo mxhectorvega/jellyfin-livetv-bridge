@@ -43,6 +43,7 @@ from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from .ts_mux import muxear
 from .ts_splice import Remendador, primer_pts
 from .util import get_logger
 
@@ -172,6 +173,12 @@ class RelayHLS:
         self._rem = Remendador()
         self._fuente_de_datos = self._indice
         self._remiendos = 0
+        # Rendicion de audio aparte (EXT-X-MEDIA:TYPE=AUDIO). Si el master la
+        # trae, cada segmento se muxe con su gemelo de audio antes de entrar al
+        # colchon: sin esto el 34% del catalogo de Pluto se oye mudo.
+        self._audio_pl = ""
+        self._muxeados = 0
+        self._sin_audio = 0
         self._stop = threading.Event()
         self._hilo: threading.Thread | None = None
         self._siguiente_cliente = 0
@@ -328,20 +335,100 @@ class RelayHLS:
             else:
                 self._fallos += 1
 
+    @staticmethod
+    def _rendicion_audio(master: str, base: str) -> str:
+        """URI de la rendicion de audio aparte, si el master la declara.
+
+        - Discussion: medido en Pluto, **66 de 197 canales** publican el audio en
+          su propia playlist y la variante solo lo referencia con
+          ``AUDIO="audio"``::
+
+              #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",URI="audio/.../audio.m3u8"
+              #EXT-X-STREAM-INF:...,AUDIO="audio"
+
+          El rele bajaba solo la variante de video, asi que servia imagen sin
+          sonido. ffprobe si veia el audio (resuelve el master completo) y por
+          eso ``/status`` decia ``audio: aac`` en canales que se oian mudos.
+        - Returns: la URL de la playlist de audio, o ``""`` si no hay.
+        """
+        for linea in master.splitlines():
+            if linea.startswith("#EXT-X-MEDIA") and "TYPE=AUDIO" in linea:
+                coincidencia = re.search(r'URI="([^"]+)"', linea)
+                if coincidencia:
+                    return urllib.parse.urljoin(base, coincidencia.group(1))
+        return ""
+
     def _resolver_variante(self, forzar: bool = False) -> str:
         """Lee el origen; si es master, baja a la mejor variante util."""
         actual = self._url_origen(forzar=forzar)
+        # Se recalcula en cada re-resolucion, pero NO se borra al bajar a la
+        # variante: si se borrara ahi, se perderia la rendicion de audio que el
+        # master acaba de declarar (medido: el rele servia mudo con
+        # `rendicion=False` en un canal que si la trae).
+        self._audio_pl = ""
         for _ in range(3):
             texto = self._leer_manifiesto(actual)
             if not self._es_master(texto):
                 self._usar_master = False
                 return actual
             self._usar_master = True
+            encontrada = self._rendicion_audio(texto, actual)
+            if encontrada:
+                self._audio_pl = encontrada
             elegida = self._mejor_variante(texto, actual)
             if not elegida:
                 raise RuntimeError("master sin variantes")
             actual = elegida
         raise RuntimeError("anidamiento de master mayor a 3")
+
+    def _refs_audio(self) -> dict[int, RefSegmento]:
+        """Segmentos de la playlist de audio, por su posicion.
+
+        - Discussion: el audio y el video de un mismo canal vienen alineados
+          (medido: mismo numero de segmentos, duraciones con 13 ms de
+          diferencia), asi que se empareja por POSICION dentro de la playlist.
+          El numero de secuencia NO sirve para emparejar: medido, difieren en 1.
+        """
+        if not self._audio_pl:
+            return {}
+        try:
+            texto = self._leer_manifiesto(self._audio_pl)
+        except Exception as exc:  # noqa: BLE001 — sin audio se sirve el video
+            log.warning(
+                "relay: no se pudo leer la playlist de audio",
+                extra={"channel": self.nombre, "detail": str(exc)[:120]},
+            )
+            return {}
+        return {n: ref for n, ref in enumerate(self._segmentos_del_playlist(texto, self._audio_pl))}
+
+    def _muxear_audio(self, video: bytes, ref_audio: RefSegmento) -> bytes:
+        """Le pega el audio a un segmento de video. Si algo falla, deja el video.
+
+        - Important: nunca tumba el flujo. Si el audio no baja o el muxeo falla,
+          se sirve el video solo (como antes) y se cuenta en ``sin_audio``: un
+          canal mudo es mejor que un canal muerto, y el contador lo delata.
+        """
+        try:
+            audio = self._bajar_segmento(ref_audio)
+        except Exception:  # noqa: BLE001
+            audio = None
+        if not audio:
+            with self._lock:
+                self._sin_audio += 1
+            return video
+        try:
+            unido, reporte = muxear(bytes(video), bytes(audio))
+        except Exception as exc:  # noqa: BLE001 — no tumbar por un muxeo
+            with self._lock:
+                self._sin_audio += 1
+            log.warning(
+                "relay: muxeo fallido", extra={"channel": self.nombre, "detail": str(exc)[:140]}
+            )
+            return video
+        if reporte.get("muxeado"):
+            with self._lock:
+                self._muxeados += 1
+        return unido
 
     def _recordar_visto(self, url: str) -> None:
         """Marca un segmento como ya bajado, con memoria ACOTADA (LRU).
@@ -377,18 +464,19 @@ class RelayHLS:
                 if self._es_master(texto):
                     self._variante = self._resolver_variante()
                     continue
-                pendientes = [
-                    ref
-                    for ref in self._segmentos_del_playlist(texto, self._variante)
-                    if ref.url not in self._vistos
-                ]
-                for ref in pendientes:
+                refs = self._segmentos_del_playlist(texto, self._variante)
+                pendientes = [(n, ref) for n, ref in enumerate(refs) if ref.url not in self._vistos]
+                audio_refs = self._refs_audio() if pendientes else {}
+                for n, ref in pendientes:
                     if self._stop.is_set():
                         return
                     self._esperar_hueco()
                     datos = self._bajar_segmento(ref)
                     if datos is None:
                         continue
+                    ref_audio = audio_refs.get(n)
+                    if ref_audio is not None:
+                        datos = self._muxear_audio(datos, ref_audio)
                     datos = self._remendar(datos)
                     with self._lock:
                         self._recordar_visto(ref.url)
@@ -603,6 +691,9 @@ class RelayHLS:
                 "remendando": self.remendar,
                 "remiendos": self._remiendos,
                 "ultimo_pts": self._rem.ultimo_pts_emitido,
+                "rendicion_audio": bool(self._audio_pl),
+                "muxeados": self._muxeados,
+                "sin_audio": self._sin_audio,
             }
 
     # ---------------------------------------------------------------- cliente

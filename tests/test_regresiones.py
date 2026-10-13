@@ -700,6 +700,34 @@ def test_la_sonda_reporta_los_errores_de_todos(monkeypatch, settings: Settings):
     assert "[0]" in resultado.error and "[1]" in resultado.error
 
 
+def test_el_rele_detecta_la_rendicion_de_audio_aparte():
+    """66 de 197 canales de Pluto publican el audio en su propia playlist.
+
+    El master lo declara con EXT-X-MEDIA:TYPE=AUDIO y la variante lo referencia
+    con AUDIO="..."; el video de esa variante NO trae audio.
+    """
+    master = (
+        "#EXTM3U\n"
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,'
+        'URI="audio/audio/English/audio.m3u8"\n'
+        '#EXT-X-STREAM-INF:BANDWIDTH=3321280,AUDIO="audio"\n'
+        "3321280/playlist.m3u8\n"
+    )
+    url = RelayHLS._rendicion_audio(master, "https://cdn.tv/v2/stitch/hls/channel/abc/master.m3u8")
+    assert url == "https://cdn.tv/v2/stitch/hls/channel/abc/audio/audio/English/audio.m3u8"
+
+
+def test_el_rele_no_inventa_rendicion_cuando_no_la_hay():
+    """El otro 66%: la variante trae el audio muxed y no hay nada que juntar."""
+    master = (
+        "#EXTM3U\n"
+        '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",URI="subs/es.m3u8"\n'
+        '#EXT-X-STREAM-INF:BANDWIDTH=3321280,SUBTITLES="subs"\n'
+        "3321280/playlist.m3u8\n"
+    )
+    assert RelayHLS._rendicion_audio(master, "https://cdn.tv/x/master.m3u8") == ""
+
+
 def test_rele_el_empalme_se_encadena():
     """Un tercer salto no vuelve a la linea de tiempo original."""
     r = RelayHLS(["http://a/1.m3u8", "http://b/2.m3u8"], nombre="x")

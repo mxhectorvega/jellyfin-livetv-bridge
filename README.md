@@ -160,7 +160,12 @@ deps      tests/test_estandares.py exige que pyproject.toml y
           requirements.txt declaren LO MISMO, y que la version del
           modulo cuadre con la del paquete.
 video     ISO/IEC 13818-1 | ITU-T H.222.0 §2.4.3 y §2.4.3.6:
-          PCR, PTS y DTS del cosido al cambiar de fuente.
+          PCR, PTS y DTS del cosido al cambiar de fuente. Del
+          muxeo de audio: Tabla 2-33 (sintaxis del PMT),
+          §2.4.4.9 (section_length), Tabla 2-34 (stream_type
+          0x0F = AAC con ADTS) y Anexo A (CRC_32), que se
+          comprueba por el autocontrol de la norma y no contra
+          un numero magico.
 HTTP      RFC 8216 §4 para el tipo de medio del M3U; HEAD
           atendido, y 403 en vez de 409/451.
 XMLTV     validar_xmltv() revisa lo que el DTD exige ANTES de
@@ -311,6 +316,20 @@ Que hace y que no:
   el token de TV Azteca caduca (401), en cada caso pidiendo token NUEVO.
 - **Descifra AES-128** con `openssl`: el rele copia bytes, asi que sin descifrar
   entregaria texto cifrado. Respeta el IV explicito por segmento.
+- **Le pega el audio cuando el canal lo publica aparte.** Medido: 66 de 197
+  canales del catalogo de Pluto traen el audio en su PROPIA playlist y la
+  variante solo lo referencia (`#EXT-X-MEDIA:TYPE=AUDIO` mas `AUDIO="audio"`).
+  El video de esa variante no lleva sonido, asi que se servia imagen muda
+  mientras `/status` reportaba `audio: aac` — ffprobe resuelve el master
+  completo y si lo veia. Ahora, si el master declara esa rendicion, el rele baja
+  tambien su playlist, la empareja con el video POR POSICION y muxea los dos
+  flujos en un solo MPEG-TS (`src/ts_mux.py`) antes de meterlo al colchon.
+  Empareja por posicion y no por numero de secuencia porque los dos playlists
+  NO van sincronizados en ese campo: medido, difieren en 1.
+  Renumera el PID del audio si choca con alguno del video y descarta la PSI del
+  audio: dos PAT/PMT en el mismo TS se contradicen.
+  Si el muxeo falla, sirve el video solo y lo cuenta en `sin_audio` (un canal
+  mudo es mejor que uno muerto); `muxeados` lleva la cuenta de los que si.
 - **Salta a la fuente alterna** declarada en el bloque `respaldo:` de
   `sources.yml` (con el colchon vacio al primer fallo; con colchon lleno, a los
   tres seguidos).

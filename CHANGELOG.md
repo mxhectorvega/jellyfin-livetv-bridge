@@ -8,6 +8,35 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+### Anadido
+
+- **Muxeo del audio cuando el canal lo publica aparte** (`src/ts_mux.py`).
+  Medido: 66 de 197 canales del catalogo de Pluto traen el audio en su propia
+  playlist (`#EXT-X-MEDIA:TYPE=AUDIO`) y la variante de video no lleva sonido,
+  asi que se servian mudos mientras `/status` reportaba `audio: aac`. El rele
+  ahora detecta esa rendicion, baja su playlist, empareja por POSICION (medido:
+  los dos playlists difieren en 1 en `EXT-X-MEDIA-SEQUENCE`, asi que el numero
+  de secuencia no sirve para emparejar) y muxea los dos flujos en un solo
+  MPEG-TS antes de meterlo al colchon. `/status` expone `rendicion_audio`,
+  `muxeados` y `sin_audio`.
+- Dos bancos nuevos que NO corren en el CI porque necesitan red contra el CDN
+  real: `tests/banco_mux.py` (el muxer contra segmentos reales) y
+  `tests/banco_rele_audio.py` (el camino completo del rele). Ambos usan el
+  parser de playlists DEL PROPIO RELE, para que banco y rele no puedan divergir.
+  Medido: 12 OK / 0 fallo sobre 15 canales con audio aparte, y el rele sirviendo
+  `['h264,video','aac,audio']` con `muxeados=2`.
+
+### Corregido
+
+- **Renumerado del PID del audio.** Elegia un PID libre mirando solo los
+  paquetes presentes, y podia escoger uno que el PMT ya declaraba aunque no
+  trajera paquetes en ese segmento; al agregarlo, `agregar_es` reventaba. Ahora
+  el conjunto incluye paquetes presentes Y PIDs declarados.
+- **El resolver borraba la rendicion de audio.** Al bajar del master a la
+  variante, la segunda vuelta del bucle limpiaba `_audio_pl` y se perdia lo que
+  el master acababa de declarar. Sintoma medido: `rendicion=False` en un canal
+  que si la trae, y el rele sirviendo mudo sin un solo error en el log.
+
 ## [0.1.1] — 2026-10-13
 
 ### Corregido
