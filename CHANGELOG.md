@@ -8,6 +8,28 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.2.2] — 2026-10-13
+
+### Corregido
+
+- **El PID del audio cambiaba entre segmentos del MISMO canal.** Se elegia "el
+  primer PID libre" contra los PIDs de cada segmento, y el video no trae siempre
+  los mismos. Medido sobre el rele en vivo, en un solo jale: `0x100`, `0x101`,
+  `0x102` y `0x103`. Cada segmento trae su propio PAT y PMT, asi que es MPEG-TS
+  valido — pero un reproductor que se quede con el primer PMT y no relea la PSI
+  pierde el audio al cambiar de segmento.
+  Ahora el PID se elige desde `BASE_PID_AUDIO` (0x1F00, fuera de donde viven el
+  video y la PSI) y el rele lo **recuerda por canal** y lo vuelve a pedir en cada
+  segmento (`muxear(..., pid_audio=)`). Si ese PID llegara a chocar, se elige
+  otro y el rele se entera por el reporte. `/relay/status` expone `pid_audio`.
+
+### Anadido
+
+- Tres pruebas nuevas: el PID por defecto sale estable aunque cambien los del
+  video, se respeta el que da el rele, y se reasigna si choca con el video.
+- Banco `tests/banco_pid_audio.py`: cuenta los PIDs de audio distintos a lo largo
+  del flujo servido. No corre en CI: necesita el CDN real.
+
 ## [0.2.1] — 2026-10-13
 
 ### Corregido

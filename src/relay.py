@@ -179,6 +179,11 @@ class RelayHLS:
         self._audio_pl = ""
         self._muxeados = 0
         self._sin_audio = 0
+        # PID que se le dio al audio muxeado. Se recuerda para que TODOS los
+        # segmentos del canal lo compartan: si se eligiera de nuevo en cada uno,
+        # el PID cambiaria entre segmentos y un reproductor que no relea la PSI
+        # perderia el audio al cambiar. 0 = todavia sin elegir.
+        self._pid_audio = 0
         self._stop = threading.Event()
         self._hilo: threading.Thread | None = None
         self._siguiente_cliente = 0
@@ -417,7 +422,7 @@ class RelayHLS:
                 self._sin_audio += 1
             return video
         try:
-            unido, reporte = muxear(bytes(video), bytes(audio))
+            unido, reporte = muxear(bytes(video), bytes(audio), pid_audio=self._pid_audio or None)
         except Exception as exc:  # noqa: BLE001 — no tumbar por un muxeo
             with self._lock:
                 self._sin_audio += 1
@@ -428,6 +433,8 @@ class RelayHLS:
         if reporte.get("muxeado"):
             with self._lock:
                 self._muxeados += 1
+                # Se recuerda para los siguientes segmentos del canal.
+                self._pid_audio = reporte.get("pid_audio") or self._pid_audio
         return unido
 
     def _recordar_visto(self, url: str) -> None:
@@ -694,6 +701,7 @@ class RelayHLS:
                 "rendicion_audio": bool(self._audio_pl),
                 "muxeados": self._muxeados,
                 "sin_audio": self._sin_audio,
+                "pid_audio": self._pid_audio,
             }
 
     # ---------------------------------------------------------------- cliente

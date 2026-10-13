@@ -60,6 +60,10 @@ SYNC = 0x47
 PID_PAT = 0x0000
 TABLE_ID_PMT = 0x02
 STREAM_TYPE_AAC_ADTS = 0x0F
+# Desde donde se busca PID para el audio muxeado. Alto a proposito: el video de
+# Pluto vive en 0x50-0x100 y la PSI en 0x0000-0x1000, asi que 0x1F00 no choca y
+# la eleccion sale estable sin necesidad de estado.
+BASE_PID_AUDIO = 0x1F00
 MAX_SECTION_LENGTH = 1021  # §2.4.4.9: no pasa de 1021 (0x3FD)
 
 
@@ -342,7 +346,7 @@ def _paquetes(
     return salida
 
 
-def muxear(video: bytes, audio: bytes) -> tuple[bytes, dict]:
+def muxear(video: bytes, audio: bytes, pid_audio: int | None = None) -> tuple[bytes, dict]:
     """Junta un segmento de video con su gemelo de audio en UN solo MPEG-TS.
 
     - Discussion: el PMT del AUDIO es el que dice cual es su PID y su
@@ -375,8 +379,21 @@ def muxear(video: bytes, audio: bytes) -> tuple[bytes, dict]:
     # trae paquetes en ESTE segmento no aparece en los paquetes, y elegirlo
     # revienta al agregarlo. Se suman las dos vistas.
     usados = pids_usados(video) | pids_usados(audio) | {p for _, p in es_de(pmt_v)}
-    if pid_a in usados:
-        pid_a = pid_libre(usados)
+    # PID del audio: el MISMO en todos los segmentos del canal.
+    #
+    # Buscar "el primer PID libre" contra cada segmento da un PID distinto en
+    # cada uno (medido sobre el rele en vivo: 0x100, 0x101, 0x102 y 0x103 en el
+    # mismo jale). Cada segmento trae su propio PAT y PMT, asi que es TS valido
+    # —pero un reproductor que se quede con el primer PMT y no relea la PSI
+    # pierde el audio al cambiar de segmento.
+    #
+    # Si el rele ya eligio uno, se respeta; si choca, se elige otro y el rele se
+    # entera por el reporte. El rango arranca alto (0x1F00) para que la primera
+    # eleccion caiga fuera de donde viven los PIDs de video y de PSI.
+    if pid_audio is not None and pid_audio not in usados:
+        pid_a = pid_audio
+    else:
+        pid_a = pid_libre(usados, desde=BASE_PID_AUDIO)
 
     pmt_nuevo = seccion_a_paquetes(agregar_es(pmt_v, tipo_a, pid_a), pmt_v.pid)
     # Se descartan TODOS los PMT que declare el PAT, no solo el que se reescribe.

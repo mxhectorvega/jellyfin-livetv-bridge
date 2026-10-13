@@ -328,6 +328,10 @@ Que hace y que no:
   NO van sincronizados en ese campo: medido, difieren en 1.
   Renumera el PID del audio si choca con alguno del video y descarta la PSI del
   audio: dos PAT/PMT en el mismo TS se contradicen.
+  El PID que le toca al audio se recuerda POR CANAL, para que sea el mismo en
+  todos los segmentos: si se eligiera de nuevo en cada uno, un reproductor que no
+  relea la PSI perdería el audio al cambiar de segmento. `/relay/status` lo
+  expone en `pid_audio`.
   Si el muxeo falla, sirve el video solo y lo cuenta en `sin_audio` (un canal
   mudo es mejor que uno muerto); `muxeados` lleva la cuenta de los que si.
 - **Salta a la fuente alterna** declarada en el bloque `respaldo:` de

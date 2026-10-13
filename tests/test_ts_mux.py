@@ -289,6 +289,49 @@ def test_muxear_renumera_el_pid_del_audio_si_choca():
     assert reporte["pid_audio"] != chocado, "no puede quedarse con el PID que ya usa el video"
 
 
+def test_el_pid_del_audio_por_defecto_sale_estable():
+    """El mismo PID en TODOS los segmentos del canal.
+
+    Antes se buscaba "el primer libre" contra cada segmento y salia distinto en
+    cada uno (medido sobre el rele en vivo: 0x100, 0x101, 0x102 y 0x103 en el
+    mismo jale). Cada segmento trae su PAT y PMT, asi que es TS valido, pero un
+    reproductor que se quede con el primer PMT pierde el audio al cambiar.
+    """
+    from src.ts_mux import BASE_PID_AUDIO, muxear
+
+    audio = _ts(pmt([(0x0F, PID_AUDIO)]), 0x1001, PID_AUDIO, 4)
+    # dos segmentos de video con PIDs DISTINTOS en uso
+    v1 = _ts(pmt([(0x1B, 0x0110)]), PID_PMT, 0x0110, 4)
+    v2 = _ts(pmt([(0x1B, 0x0111)]), PID_PMT, 0x0111, 4)
+
+    _, r1 = muxear(v1, audio)
+    _, r2 = muxear(v2, audio)
+    assert r1["pid_audio"] == r2["pid_audio"], "el PID no puede bailar entre segmentos"
+    assert r1["pid_audio"] >= BASE_PID_AUDIO, "se busca desde el rango alto"
+
+
+def test_el_pid_del_audio_se_respeta_si_lo_da_el_rele():
+    """El rele recuerda el PID del canal y lo vuelve a pedir en cada segmento."""
+    from src.ts_mux import muxear
+
+    audio = _ts(pmt([(0x0F, PID_AUDIO)]), 0x1001, PID_AUDIO, 4)
+    video = _ts(pmt([(0x1B, PID_VIDEO)]), PID_PMT, PID_VIDEO, 4)
+    _, r = muxear(video, audio, pid_audio=0x1E00)
+    assert r["pid_audio"] == 0x1E00
+    p = leer_pmt(muxear(video, audio, pid_audio=0x1E00)[0], PID_PMT)
+    assert 0x1E00 in [pid for _, pid in es_de(p)]
+
+
+def test_el_pid_del_audio_se_reasigna_si_el_que_dieron_choca():
+    """Si el video ocupa el PID que traia el rele, se elige otro."""
+    from src.ts_mux import muxear
+
+    audio = _ts(pmt([(0x0F, PID_AUDIO)]), 0x1001, PID_AUDIO, 4)
+    video = _ts(pmt([(0x1B, 0x1F00)]), PID_PMT, 0x1F00, 4)
+    _, r = muxear(video, audio, pid_audio=0x1F00)
+    assert r["pid_audio"] != 0x1F00
+
+
 def test_muxear_avisa_si_el_video_no_trae_pmt():
     import pytest
     from src.ts_mux import muxear
