@@ -20,4 +20,4 @@ Modulos:
     main        etapa 9 — orquestador del pipeline y arranque de uvicorn
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"

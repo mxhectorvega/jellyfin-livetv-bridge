@@ -8,6 +8,8 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.2.0] — 2026-10-13
+
 ### Anadido
 
 - **Muxeo del audio cuando el canal lo publica aparte** (`src/ts_mux.py`).
