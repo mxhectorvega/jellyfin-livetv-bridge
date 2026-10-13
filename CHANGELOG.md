@@ -8,6 +8,8 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.1.1] — 2026-10-13
+
 ### Corregido
 
 - **La validacion solo miraba la URL principal.** Con el bloque `respaldo:`
@@ -107,5 +109,6 @@ comprobado y con los estandares verificados por CI.
 - `.dockerignore`: el contexto de build mandaba `.env`, `config/` y `data/` al
   daemon en cada build.
 
-[Sin publicar]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.0...HEAD
+[Sin publicar]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/releases/tag/v0.1.0
