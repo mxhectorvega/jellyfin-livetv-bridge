@@ -257,6 +257,32 @@ def seccion_a_paquetes(seccion: bytes, pid: int) -> bytes:
     return bytes(salida)
 
 
+def pat_a_paquetes(pmt_pid: int, programa: int, transport_stream_id: int = 0x0001) -> bytes:
+    """PAT con UN programa, apuntando al PID del PMT.
+
+    - Discussion: al muxear se descarta la PSI original, PAT incluido, y sin PAT
+      el decodificador no tiene como LOCALIZAR el PMT: queda obligado a barrer
+      el flujo buscando una tabla con ``table_id`` 0x02. ffprobe lo hace y por
+      eso el banco daba verde, pero es una violacion de ISO/IEC 13818-1
+      §2.4.4.3 (Tabla 2-30): el PAT es el punto de entrada de la PSI y es
+      obligatorio, no un adorno.
+    - Discussion: ``programa`` tiene que ser el MISMO numero que declara el PMT,
+      o el decodificador no empata la entrada del PAT con la tabla.
+    """
+    cuerpo = bytearray()
+    cuerpo += struct.pack(">H", transport_stream_id)
+    cuerpo.append(0xC1)  # reserved '11' + version_number 0 + current_next '1'
+    cuerpo.append(0x00)  # section_number
+    cuerpo.append(0x00)  # last_section_number
+    cuerpo += struct.pack(">H", programa)
+    cuerpo.append(0xE0 | ((pmt_pid >> 8) & 0x1F))
+    cuerpo.append(pmt_pid & 0xFF)
+    largo = len(cuerpo) + 4  # lo que sigue al section_length, CRC incluido
+    seccion = bytearray([0x00, 0xB0 | ((largo >> 8) & 0x0F), largo & 0xFF]) + cuerpo
+    seccion = bytes(seccion) + struct.pack(">I", crc32_mpeg(bytes(seccion)))
+    return seccion_a_paquetes(seccion, PID_PAT)
+
+
 # ---------------------------------------------------------------------------
 # Union de un segmento de video con su gemelo de audio
 # ---------------------------------------------------------------------------
@@ -362,7 +388,9 @@ def muxear(video: bytes, audio: bytes) -> tuple[bytes, dict]:
 
     # Intercalado proporcional: un paquete de audio cada ``paso`` de video. Asi
     # el sonido llega repartido y no a rachas de un segundo.
-    salida = bytearray(pmt_nuevo)
+    # El PAT va PRIMERO: es el punto de entrada de la PSI (§2.4.4.3).
+    salida = bytearray(pat_a_paquetes(pmt_v.pid, pmt_v.programa))
+    salida += pmt_nuevo
     paso = max(1, len(v_pkts) // max(1, len(a_pkts)))
     ia = 0
     for n, pkt in enumerate(v_pkts, start=1):

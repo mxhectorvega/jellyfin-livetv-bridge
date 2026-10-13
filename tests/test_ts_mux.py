@@ -242,6 +242,41 @@ def test_muxear_tira_la_psi_del_audio():
     assert 0x1001 not in usados, "el PMT del audio no puede sobrevivir"
 
 
+def test_muxear_emite_el_pat_que_apunta_al_pmt():
+    """§2.4.4.3 (Tabla 2-30): el PAT es el punto de entrada de la PSI.
+
+    Sin PAT el decodificador queda obligado a barrer el flujo buscando una
+    tabla con table_id 0x02. ffprobe lo hace, pero un cliente estricto no tiene
+    por que.
+    """
+    from src.ts_mux import SYNC, _pid_de, leer_pmts_pids, muxear
+
+    video = _ts(pmt([(0x1B, PID_VIDEO)]), PID_PMT, PID_VIDEO, 4)
+    audio = _ts(pmt([(0x0F, PID_AUDIO)]), 0x1001, PID_AUDIO, 4)
+    unido, _ = muxear(video, audio)
+
+    assert unido[0] == SYNC
+    assert _pid_de(unido, 0) == 0x0000, "el primer paquete tiene que ser el PAT"
+    assert leer_pmts_pids(unido) == [PID_PMT], "el PAT tiene que apuntar al PMT"
+
+
+def test_el_pat_lleva_el_mismo_programa_que_el_pmt():
+    """Si el numero de programa no empata, el decodificador no liga PAT y PMT."""
+    from src.ts_mux import PID_PAT, _pid_de, _seccion_de_paquetes, pat_a_paquetes
+
+    for programa in (1, 7, 300):
+        ts = pat_a_paquetes(0x1000, programa)
+        assert _pid_de(ts, 0) == 0x0000
+        # Se extrae la seccion con el reensamblador del modulo: el paquete lleva
+        # campo de adaptacion de relleno, asi que el inicio de la carga util NO
+        # esta en un offset fijo.
+        sec = _seccion_de_paquetes(ts, PID_PAT)
+        assert sec is not None
+        assert sec[0] == 0x00, "table_id del PAT"
+        assert sec[8:10] == programa.to_bytes(2, "big"), "numero de programa"
+        assert sec[10:12] == b"\xf0\x00", "PID del PMT (0x1000)"
+
+
 def test_muxear_renumera_el_pid_del_audio_si_choca():
     """Medido en Pluto: el audio trae el 0x50 y el video tambien lo usa."""
     from src.ts_mux import muxear

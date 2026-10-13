@@ -8,6 +8,22 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.2.1] — 2026-10-13
+
+### Corregido
+
+- **El muxeo tiraba el PAT y no lo volvia a emitir.** Al juntar el audio con el
+  video se descartaba la PSI original —PAT incluido— y la salida empezaba con el
+  PMT, sin nada que dijera donde vive. El PAT es el punto de entrada de la PSI
+  y es obligatorio (ISO/IEC 13818-1 §2.4.4.3, Tabla 2-30): sin el, el
+  decodificador queda obligado a barrer el flujo buscando una tabla con
+  `table_id` 0x02. ffprobe lo hace —y por eso los bancos daban verde— pero un
+  cliente estricto no tiene por que. Ahora `pat_a_paquetes()` emite un PAT con
+  el MISMO numero de programa que declara el PMT, y va primero en la salida.
+  Medido antes del arreglo, sobre el rele en vivo: `PID 0x0000` ausente.
+  Dos pruebas nuevas: el PAT existe y apunta al PMT, y el numero de programa
+  empata entre PAT y PMT.
+
 ## [0.2.0] — 2026-10-13
 
 ### Anadido
