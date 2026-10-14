@@ -8,6 +8,36 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.4.3] — 2026-10-14
+
+### Corregido
+
+- **Los canales se quedaban PAUSADOS y no habia forma de reanimarlos.** Causa
+  medida: el CDN de Pluto **vacia el playlist variante en la segunda lectura
+  seguida** —devuelve `200` con cero segmentos, que no es una excepcion— y basta
+  con **volver a pedir el master** para que lo rearme:
+
+  ```
+  1) master nuevo -> variante -> leer    segmentos=5
+  2) la MISMA variante otra vez          segmentos=0   <- el CDN la vacia
+  3) master nuevo otra vez -> leer       segmentos=5   <- se rearma
+  4) y la nueva, repetida                segmentos=0
+  ```
+
+  El rele pedia el master UNA sola vez al resolver la variante y despues
+  sondeaba esa misma URL cada `SONDEO_S` (0.5 s) para siempre. Bajaba los
+  primeros segmentos, el playlist se vaciaba, y el canal se quedaba congelado
+  **sin un solo error en el log**, porque un `200` vacio no dispara el camino de
+  401/403/404. Medido en produccion: 5 reles con cliente enganchado y el frente
+  clavado, reconectando en bucle cada ~60 s.
+
+  Ahora hay un **vigilante de estancamiento**: si hay clientes esperando y el
+  frente lleva mas de `ESTANCADO_S` (25 s) sin moverse, se vuelve a pedir el
+  master. El reloj arranca cuando entra un cliente, para no juzgar de mas a un
+  rele precalentado, y sin clientes no dispara. `/relay/status` expone
+  `estancamientos`. Tres pruebas nuevas, incluida la de que NO dispara sin
+  clientes.
+
 ## [0.4.2] — 2026-10-14
 
 ### Anadido

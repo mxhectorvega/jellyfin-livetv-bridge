@@ -16,7 +16,7 @@ services:
         # UID/GID del dueno de /config y /data en el host (server:server).
         LVB_UID: "1000"
         LVB_GID: "1000"
-    image: jellyfin-livetv-bridge:0.4.2
+    image: jellyfin-livetv-bridge:0.4.3
     container_name: livetv-bridge
     env_file:
       - ./.env

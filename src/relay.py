@@ -69,6 +69,14 @@ MAX_CLAVES = 64  # llaves AES en cache (URI -> hex), tambien LRU
 # Tope de espera entre vueltas del lector cuando la fuente no responde: sin el,
 # un origen muerto con UNA sola fuente se reintentaba cada ~0.5 s para siempre.
 REINTENTO_MAX_ESPERA_S = 30.0
+# Cuanto puede quedarse el FRENTE sin avanzar teniendo clientes antes de forzar
+# una re-resolucion del master. Medido 2026-10-14: el CDN de Pluto vacia el
+# playlist variante en la SEGUNDA lectura seguida —devuelve 200 con cero
+# segmentos, que no es excepcion— y basta con volver a pedir el master para que
+# lo rearme. El rele pedia el master UNA vez y luego sondeaba la variante cada
+# 0.5 s: bajaba los primeros segmentos y el canal se quedaba congelado para
+# siempre, sin un solo error en el log. Con esto se detecta y se cura solo.
+ESTANCADO_S = 25.0
 
 
 @dataclass
@@ -186,6 +194,10 @@ class RelayHLS:
         self._pid_audio = 0
         self._stop = threading.Event()
         self._hilo: threading.Thread | None = None
+        # Marca de tiempo del ultimo avance del frente, para el vigilante de
+        # estancamiento (ver ESTANCADO_S).
+        self._ultimo_avance = 0.0
+        self._estancamientos = 0
         self._siguiente_cliente = 0
 
     # ------------------------------------------------------------------ lector
@@ -496,6 +508,7 @@ class RelayHLS:
                         self._buf[self._frente] = Segmento(self._frente, ref.url, datos, ref.dur)
                         self._descargas += 1
                         self._fallos = 0  # la fuente activa respondio
+                        self._ultimo_avance = time.monotonic()
                         self._podar()
                     self._error = ""
                 with self._lock:
@@ -520,6 +533,26 @@ class RelayHLS:
             except Exception as exc:  # noqa: BLE001 — el lector nunca muere
                 self._error = str(exc)[:200]
                 self._contar_fallo()
+            # VIGILANTE DE ESTANCAMIENTO. Si hay clientes esperando y el frente
+            # lleva demasiado sin moverse, se vuelve a pedir el master. Es lo
+            # unico que rearma a un CDN que devuelve el playlist VACIO: un 200
+            # con cero segmentos no dispara el camino de 401/403/404, asi que sin
+            # esto el canal se quedaba congelado para siempre, sin error visible.
+            with self._lock:
+                hay_clientes = bool(self._clientes)
+                quieto = time.monotonic() - self._ultimo_avance
+            if hay_clientes and quieto > ESTANCADO_S:
+                with self._lock:
+                    self._refrescos += 1
+                    self._estancamientos += 1
+                    self._variante = ""
+                    self._refrescar_token = True
+                    self._ultimo_avance = time.monotonic()  # no re-disparar en bucle
+                log.warning(
+                    "relay: frente estancado, re-resolviendo el master",
+                    extra={"channel": self.nombre, "detail": f"quieto {quieto:.0f}s"},
+                )
+
             # Espera entre vueltas. Normal: SONDEO_S. Si la fuente viene
             # fallando, crece hasta REINTENTO_MAX_ESPERA_S: un origen muerto con
             # una sola fuente golpeaba el CDN cada ~0.5 s para siempre.
@@ -681,6 +714,7 @@ class RelayHLS:
         if self._hilo and self._hilo.is_alive():
             return
         self._stop.clear()
+        self._ultimo_avance = time.monotonic()
         self._hilo = threading.Thread(target=self._bucle, name="relay-hls", daemon=True)
         self._hilo.start()
 
@@ -718,6 +752,7 @@ class RelayHLS:
                 "muxeados": self._muxeados,
                 "sin_audio": self._sin_audio,
                 "pid_audio": self._pid_audio,
+                "estancamientos": self._estancamientos,
             }
 
     # ---------------------------------------------------------------- cliente
@@ -752,6 +787,9 @@ class RelayHLS:
                 idx = self._frente + 1
             self._clientes[cid] = (idx, time.monotonic())
             self._tuvo_clientes = True
+            # El reloj del vigilante arranca cuando llega el cliente: se le da
+            # ESTANCADO_S de gracia antes de juzgar que el frente esta quieto.
+            self._ultimo_avance = time.monotonic()
         log.info(
             "relay: cliente enganchado",
             extra={"channel": self.nombre, "detail": f"idx={idx} frente={self._frente}"},
