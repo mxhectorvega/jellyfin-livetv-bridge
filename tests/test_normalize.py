@@ -56,7 +56,7 @@ def test_dedupe_no_fusiona_canales_distintos():
 def test_apply_group_filters_es_regex_completo():
     canales = [
         Channel(name="A", group="Adultos", source_url="u"),
-        Channel(name="B", group="Nacionales", source_url="u"),
+        Channel(name="B", group="Deportes", source_url="u"),
     ]
     kept, dropped = apply_group_filters(canales, [r"^(Adultos?|XXX)$"])
     assert dropped == 1
@@ -71,8 +71,8 @@ def test_apply_group_filters_no_arrastra_subcadenas():
 
 def test_normalize_asigna_id_estable_y_epg_id(settings: Settings):
     canales = [
-        Channel(name="Canal Uno (720p)", tvg_id="uno.mx@SD", group="Nacionales", source_url="u1"),
-        Channel(name="Canal Dos", group="Nacionales", source_url="u2"),
+        Channel(name="Canal Uno (720p)", tvg_id="uno.mx@SD", group="Deportes", source_url="u1"),
+        Channel(name="Canal Dos", group="Deportes", source_url="u2"),
     ]
     salida, reporte = normalize(canales, settings)
     assert salida[0].id == "uno.mx"

@@ -128,8 +128,8 @@ class RelayHLS:
           que el flujo sigue aunque la fuente nueva traiga otra línea de tiempo
           (el reproductor puede dar un tirón en el salto; eso es el punto 3a).
         - ``resolver(idx)`` devuelve la URL viva de la fuente ``idx`` (para
-          refrescar tokens como el de TV Azteca). Sin resolver, se usa la URL
-          tal cual.
+          refrescar URLs firmadas o tokens de la fuente). Sin resolver, se usa la
+          URL tal cual.
         - ``nombre`` es el id del canal y va en TODAS las líneas de log. Sin él,
           un "re-resolviendo origen HTTP 404" repetido no dice QUÉ canal está
           caído: medido en producción, varias horas de ruido sin saber a quién.
@@ -218,8 +218,8 @@ class RelayHLS:
     def _mejor_variante(texto: str, base: str = "") -> str:
         """URL de la variante de MAYOR bandwidth de un master.
 
-        - Discussion: el master de TV Azteca trae 480p, 360p y 720p; quedarse
-          con la primera servia 480p teniendo 720p disponible. Se elige la de
+        - Discussion: un master suele traer varias calidades; quedarse con la
+          primera servia 480p teniendo 720p disponible. Se elige la de
           mayor ancho de banda: si el cliente no puede con ella, Jellyfin
           transcodifica hacia abajo, que es lo que ya sabe hacer.
         """
@@ -242,7 +242,7 @@ class RelayHLS:
         """Refs de los segmentos de un playlist media, con su llave AES si la traen.
 
         - Important: ``#EXT-X-KEY`` aplica al segmento SIGUIENTE y puede cambiar
-          en cada uno (medido en TV Azteca: una llave por segmento, cada una con
+          en cada uno (medido: una llave por segmento, cada una con
           su IV). Sin descifrar, el cliente recibe bytes cifrados y no decodifica
           nada: medido, ffprobe responde "Invalid data found".
         """
@@ -497,9 +497,9 @@ class RelayHLS:
                     self._error = ""
             except urllib.error.HTTPError as exc:
                 # Ruta muerta o token vencido: se vuelve a resolver el origen.
-                # 401 entra aqui: mdstrm (TV Azteca) responde 401 cuando el
-                # access_token cacheado ya murio, y sin refrescarlo el canal no
-                # se recupera nunca.
+                # 401 entra aqui: la fuente responde 401 cuando su token
+                # cacheado ya murio, y sin refrescarlo el canal no se recupera
+                # nunca.
                 if exc.code in (401, 403, 404, 410):
                     with self._lock:
                         self._refrescos += 1

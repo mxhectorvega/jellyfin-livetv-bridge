@@ -73,7 +73,7 @@ class Channel:
     country: str = ""
     language: str = ""
     source: str = ""
-    catalog: str = ""  # grupo seleccionable (nacionales|pluto|vix|...)
+    catalog: str = ""  # grupo seleccionable (pluto|mi-lista|...)
     profile: str = "auto"  # auto | copy | h264 | aac
     backups: list[str] = field(default_factory=list)  # fuentes alternas, en orden
     enabled: bool = True

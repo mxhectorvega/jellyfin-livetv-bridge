@@ -8,6 +8,22 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.4.0] — 2026-10-14
+
+### Eliminado
+
+- **Modulo `src/azteca.py` (139 lineas):** resolvia el token de TV Azteca para 2 canales nacionales.
+- **`tests/test_azteca.py` (35 pruebas).**
+- **Ajustes `azteca_enabled` y `azteca_local_base`** en `src/config.py`.
+- **Endpoint `GET /azteca/<clave>`** en `src/api.py`.
+- **Llamadas a `reescribir_url`** en `src/api.py` y `src/probe.py`.
+- **Fuente «Nacionales» y guia «Nacionales (propia)»** en `config/sources.yml`.
+- **Catalogo del host** `/home/server/catalogo_nacionales.m3u`.
+
+### Cambiado
+
+- **El proyecto queda solo con Pluto TV (198 canales).** Se conserva el mecanismo de `respaldo:` en `sources.yml` para fuentes alternas de cualquier canal, y el mecanismo de varios catalogos alimentados con uno publicado.
+
 ## [0.3.0] — 2026-10-13
 
 ### Cambiado

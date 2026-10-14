@@ -17,7 +17,7 @@ from src.ingest import (
 M3U = (
     "#EXTM3U\n"
     '#EXTINF:-1 tvg-id="uno.mx" tvg-name="Canal Uno HD" '
-    'tvg-logo="https://x.invalid/1.png" group-title="Nacionales",Canal Uno (720p)\n'
+    'tvg-logo="https://x.invalid/1.png" group-title="Deportes",Canal Uno (720p)\n'
     "https://example.invalid/uno/master.m3u8\n"
     '#EXTINF:-1 group-title="Deportes",Canal Dos FHD\n'
     "https://example.invalid/dos/index.m3u8\n"
@@ -33,7 +33,7 @@ def test_parse_m3u_lee_atributos_y_nombre():
     uno = canales[0]
     assert uno.tvg_id == "uno.mx"
     assert uno.tvg_name == "Canal Uno HD"
-    assert uno.group == "Nacionales"
+    assert uno.group == "Deportes"
     assert uno.logo == "https://x.invalid/1.png"
     assert uno.name == "Canal Uno (720p)"
     assert uno.source == "demo"

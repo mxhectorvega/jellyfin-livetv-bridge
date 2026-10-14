@@ -28,7 +28,7 @@ def test_segmentos_del_playlist_resuelve_relativas_y_guarda_duracion():
 
 
 def test_segmentos_del_playlist_lee_la_llave_aes_por_segmento():
-    """TV Azteca manda una llave AES-128 con su IV en CADA segmento."""
+    """El origen manda una llave AES-128 con su IV en CADA segmento."""
     texto = (
         "#EXTM3U\n"
         "#EXT-X-MEDIA-SEQUENCE:7157\n"
@@ -49,7 +49,7 @@ def test_segmentos_del_playlist_lee_la_llave_aes_por_segmento():
 
 
 def test_mejor_variante_elige_la_de_mayor_bandwidth():
-    """El master de TV Azteca trae 480p, 360p y 720p: hay que quedarse con 720p."""
+    """El master trae 480p, 360p y 720p: hay que quedarse con 720p."""
     master = (
         "#EXTM3U\n"
         "#EXT-X-STREAM-INF:BANDWIDTH=1623600,RESOLUTION=854x480\n"

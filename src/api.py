@@ -30,7 +30,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
     PlainTextResponse,
-    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -92,22 +91,16 @@ def fuentes_de_canal(channel: Channel) -> list[str]:
 def resolver_de_canal(channel: Channel, settings: Settings):
     """Devuelve la URL viva de la fuente ``idx`` del canal.
 
-    - Discussion: TV Azteca rota su ``access_token``; si el relé guardara la
-      URL resuelta una sola vez, al vencer el token el canal moriría. Con este
-      resolver, cada re-resolución pide token fresco. ``idx`` 0 es la principal
-      y los demás son los respaldos declarados en ``sources.yml``.
-    - Important: ``forzar=True`` pide token NUEVO saltando la caché; el relé lo
-      usa cuando el intento anterior dio 401/403, porque el cacheado ya murió.
+    - Discussion: ``idx`` 0 es la principal y los demas son los respaldos
+      declarados en ``sources.yml``. El rele lo llama en cada re-resolucion, asi
+      que una fuente que rota su URL se relee sola.
+    - Important: se conserva el parametro ``forzar`` porque el rele lo usa
+      cuando el intento anterior dio 401/403.
     """
-    from .azteca import reescribir_url
-
     fuentes = fuentes_de_canal(channel)
 
     def _resolver(idx: int = 0, forzar: bool = False) -> str:
-        url = fuentes[max(0, min(int(idx), len(fuentes) - 1))]
-        return reescribir_url(
-            url, settings.azteca_local_base, settings.azteca_enabled, forzar=forzar
-        )
+        return fuentes[max(0, min(int(idx), len(fuentes) - 1))]
 
     return _resolver
 
@@ -323,28 +316,6 @@ def create_app(state: AppState) -> FastAPI:
         )
         return StreamingResponse(relay.servir(), media_type="video/mp2t")
 
-    @app.get("/azteca/{clave}")
-    async def azteca(clave: str) -> RedirectResponse:
-        """Resuelve el token de TV Azteca y redirige al master autenticado.
-
-        - Discussion: misma funcion que hacia el servicio systemd en :8582,
-          ahora dentro del bridge. Un cliente (o el catalogo, si algun dia se
-          reapunta) puede consumir esta ruta y seguir el 302.
-        """
-        from .azteca import CANALES, resolver_url
-
-        key = urllib.parse.unquote(clave).strip().lower()
-        if key not in CANALES:
-            raise HTTPException(
-                status_code=404, detail=f"canal no listado: {key}. hay: {sorted(CANALES)}"
-            )
-        try:
-            destino = resolver_url(key)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"sin token: {str(exc)[:150]}") from exc
-        log.info("token de Azteca resuelto", extra={"channel": key})
-        return RedirectResponse(url=destino, status_code=302)
-
     @app.get("/stream/{channel_id}")
     async def stream(channel_id: str) -> StreamingResponse:
         channel = state.get_channel(channel_id)
@@ -360,15 +331,7 @@ def create_app(state: AppState) -> FastAPI:
         plan = plan_for(channel, state.settings)
         if not plan.is_copy and not can_transcode(state.settings):
             raise HTTPException(status_code=503, detail="limite de transcodificaciones alcanzado")
-        # Fuente de TV Azteca integrada: si la URL del canal apunta al proveedor
-        # local de token, el bridge la resuelve aqui (token fresco) y ffmpeg
-        # recibe el master autenticado.
-        from .azteca import reescribir_url
-
-        origen = reescribir_url(
-            channel.source_url, state.settings.azteca_local_base, state.settings.azteca_enabled
-        )
-        cmd = build_ffmpeg_cmd(origen, plan, state.settings)
+        cmd = build_ffmpeg_cmd(channel.source_url, plan, state.settings)
 
         async def generator():
             proc = await asyncio.create_subprocess_exec(

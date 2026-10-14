@@ -41,9 +41,9 @@ DEFAULT_EPG_NAME = "epg.xml"
 DEFAULT_HWACCEL = "auto"  # auto | vaapi | qsv | cpu | off
 DEFAULT_MAX_TRANSCODES = 2
 DEFAULT_RELAY_ENABLED = False  # el rele convive con /stream; se activa a proposito
-# Sin User-Agent explicito por omision: mdstrm (TV Azteca) responde 403 a los
-# UA de navegador en sus segmentos (medido 2026-10-11) y los otros 9 nacionales
-# funcionan igual con o sin UA. Cuando entre Pluto habra que darle el suyo.
+# User-Agent del rele. Vacio = sin UA explicito: algunas fuentes responden 403
+# a los UA de navegador en sus segmentos, asi que se deja configurable por
+# fuente en vez de cablearlo.
 DEFAULT_RELAY_UA = ""
 DEFAULT_HEALTH_INTERVAL_S = 300.0
 DEFAULT_HEALTH_FAILS = 3
@@ -139,9 +139,9 @@ class Settings:
 
     playlist_name: str = DEFAULT_PLAYLIST_NAME
     epg_name: str = DEFAULT_EPG_NAME
-    # Catalogo visible: vacio = todos juntos. Con valor (nacionales|pluto|vix)
+    # Catalogo visible: vacio = todos juntos. Con valor (pluto|mi-lista|...)
     # el M3U/EPG publicados salen SOLO de ese catalogo, aunque el pipeline
-    # alimente y valide los tres.
+    # alimente y valide todos.
     active_catalog: str = ""
 
     hwaccel: str = DEFAULT_HWACCEL
@@ -186,11 +186,6 @@ class Settings:
 
     log_level: str = DEFAULT_LOG_LEVEL
     log_format: str = DEFAULT_LOG_FORMAT
-
-    # Fuente de TV Azteca integrada: las URLs del catalogo que apuntan al
-    # proveedor local de token se resuelven dentro del bridge.
-    azteca_enabled: bool = True
-    azteca_local_base: str = "http://127.0.0.1:8582"
 
     # Patrones de limpieza y filtros, configurables desde sources.yml.
     strip_patterns: list[str] = field(default_factory=list)
@@ -422,15 +417,6 @@ class Settings:
             log_format=str(get("log_format", _env_str("LVB_LOG_FORMAT", DEFAULT_LOG_FORMAT)))
             .strip()
             .lower(),
-            azteca_enabled=_parse(
-                get("azteca_enabled", _env_str("LVB_AZTECA_ENABLED", str(True))),
-                _to_bool,
-                True,
-                "azteca_enabled",
-            ),
-            azteca_local_base=str(
-                get("azteca_local_base", _env_str("LVB_AZTECA_BASE", "http://127.0.0.1:8582"))
-            ).rstrip("/"),
             strip_patterns=list(get("strip_patterns", []) or []),
             group_exclude=list(get("group_exclude", []) or []),
         )

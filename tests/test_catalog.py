@@ -33,25 +33,25 @@ def _ch(cid: str, catalog: str, **kw) -> Channel:
 
 
 def _canales() -> list[Channel]:
-    return [_ch(f"nac{i}", "nacionales") for i in range(3)] + [
+    return [_ch(f"dep{i}", "deportes") for i in range(3)] + [
         _ch(f"plu{i}", "pluto") for i in range(5)
     ]
 
 
 def test_catalogs_of_cuenta_por_catalogo():
-    assert catalogs_of(_canales()) == {"nacionales": 3, "pluto": 5}
+    assert catalogs_of(_canales()) == {"deportes": 3, "pluto": 5}
 
 
 def test_select_for_output_respeta_el_catalogo_activo(settings: Settings):
     canales = _canales()
-    assert len(select_for_output(canales, settings, catalog="nacionales")) == 3
+    assert len(select_for_output(canales, settings, catalog="deportes")) == 3
     assert len(select_for_output(canales, settings, catalog="pluto")) == 5
     assert len(select_for_output(canales, settings, catalog="")) == 8
 
 
 def test_active_catalog_archivo_gana_al_entorno(settings: Settings):
-    settings.active_catalog = "nacionales"
-    assert settings.resolve_active_catalog() == "nacionales"
+    settings.active_catalog = "deportes"
+    assert settings.resolve_active_catalog() == "deportes"
     set_active_catalog(settings, "pluto")
     assert settings.resolve_active_catalog() == "pluto"
     # "todos" desactiva el filtro aunque el .env traiga un catalogo
@@ -82,13 +82,13 @@ def test_write_active_outputs_escribe_solo_el_activo(settings: Settings):
     assert result["catalogo"] == "pluto"
     assert result["canales"] == 5
     m3u = settings.playlist_file.read_text(encoding="utf-8")
-    assert "plu0" in m3u and "nac0" not in m3u
+    assert "plu0" in m3u and "dep0" not in m3u
 
-    set_active_catalog(settings, "nacionales")
+    set_active_catalog(settings, "deportes")
     result = write_active_outputs(canales, bundle, settings)
     assert result["canales"] == 3
     m3u = settings.playlist_file.read_text(encoding="utf-8")
-    assert "nac0" in m3u and "plu0" not in m3u
+    assert "dep0" in m3u and "plu0" not in m3u
     # El XMLTV se reescribe con el mismo bundle (sin re-descargar la guia).
     assert settings.epg_file.exists()
 
@@ -112,7 +112,7 @@ def _state(settings: Settings) -> AppState:
 def test_api_catalogs(settings: Settings):
     client = TestClient(create_app(_state(settings)))
     data = client.get("/catalogs").json()
-    assert data["catalogs"] == {"nacionales": 3, "pluto": 5}
+    assert data["catalogs"] == {"deportes": 3, "pluto": 5}
     assert data["activo"] == "todos"
     assert data["publicados"] == 8
 
@@ -125,11 +125,11 @@ def test_api_cambia_catalogo_y_republica(settings: Settings):
     assert r.json()["canales"] == 5
     assert client.get("/catalogs").json()["activo"] == "pluto"
     assert "plu0" in client.get("/playlist.m3u").text
-    assert "nac0" not in client.get("/playlist.m3u").text
+    assert "dep0" not in client.get("/playlist.m3u").text
     # Volver a todos
     r = client.post("/catalog/todos")
     assert r.status_code == 200
-    assert "nac0" in client.get("/playlist.m3u").text
+    assert "dep0" in client.get("/playlist.m3u").text
 
 
 def test_api_catalogo_desconocido_404(settings: Settings):

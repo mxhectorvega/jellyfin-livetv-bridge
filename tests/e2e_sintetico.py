@@ -182,7 +182,7 @@ def generar_hls(destino: Path) -> None:
 def generar_aes(destino: Path) -> str:
     """Cifra los segmentos del 720p con AES-128 y publica su playlist.
 
-    - Discussion: TV Azteca manda UNA llave por segmento, cada una con su IV. El
+    - Discussion: el origen manda UNA llave por segmento, cada una con su IV. El
       rele copia bytes, asi que sin descifrar entrega texto cifrado y el cliente
       no decodifica nada. Aqui se reproduce exactamente ese caso.
     - Returns: nombre del archivo de playlist generado.

@@ -175,33 +175,11 @@ docker    base fijada por digest, .dockerignore, corre sin root
           y con healthcheck.
 ```
 
-## Fuente de TV Azteca integrada
-
-TV Azteca publica en su plataforma (mediastream / `mdstrm.com`) y exige un
-`access_token` que caduca y rota en cada llamada. El bridge lo resuelve **por
-si mismo**, sin servicio externo ni puerto extra:
-
-```
-GET /azteca/azteca7      -> 302 al master autenticado (equivale al viejo :8582)
-GET /azteca/azteca-intl  -> idem para Azteca Internacional
-LVB_AZTECA_ENABLED       true  (apagar = no tocar esas URLs)
-LVB_AZTECA_BASE          http://127.0.0.1:8582  (prefijo que se reescribe)
-```
-
-Si el catalogo trae URLs que apuntan al proveedor local
-(`http://127.0.0.1:8582/azteca7`), el bridge las reescribe al master con token
-**al validar y al servir `/stream`**, nunca en el M3U publicado. El token se
-cachea 240 s y, si no se puede obtener, se conserva la URL original y el canal
-aparece como inaccesible en `/status` (fallo visible, no silencioso).
-
-Con esto el `refresco-azteca.service` del host queda sin funcion: su trabajo
-vive ahora en `src/azteca.py`, versionado y con tests.
-
 ## Catalogos: varios alimentados, uno visible
 
 El servicio ingesta, valida y mantiene **todos** los catalogos, pero publica
 solo uno: `playlist.m3u` y `epg.xml` salen del catalogo activo. Asi Jellyfin ve
-un grupo a la vez (nacionales, o Pluto, o ViX) sin mantener tres tuners ni
+un grupo a la vez (Pluto, o Mi lista) sin mantener tres tuners ni
 cambiar la URL.
 
 **Sacar un catalogo de la publicacion NO lo borra.** Los catalogos inactivos
@@ -212,9 +190,9 @@ Cada fuente (o canal suelto) lleva su `catalog:` en `sources.yml`:
 
 ```yaml
 sources:
-  - name: "Nacionales"
+  - name: "Mi lista"
     url: "/ruta/a/mi/catalogo.m3u"
-    catalog: "nacionales"
+    catalog: "milista"
   - name: "Pluto"
     url: "https://.../pluto_mx.m3u"
     catalog: "pluto"
@@ -235,7 +213,7 @@ No hay que reiniciar nada.
 
 ```bash
 # Lee el estado actual
-GET  /catalogs              -> {"activo": "pluto", "catalogs": {"nacionales": 10, "pluto": 198}}
+GET  /catalogs              -> {"activo": "pluto", "catalogs": {"pluto": 198}}
 
 # Cambia en caliente (NO persiste tras reinicio)
 POST /catalog/pluto         -> cambia, reescribe M3U + XMLTV, devuelve conteos
@@ -339,7 +317,7 @@ LVB_RELAY_ENABLED    true: el M3U publica /relay/<id>
 Que hace y que no:
 
 - **Re-resuelve el master solo** cuando la variante muere (404/403/410) o cuando
-  el token de TV Azteca caduca (401), en cada caso pidiendo token NUEVO.
+  el token del proveedor caduca (401), en cada caso pidiendo token NUEVO.
 - **Descifra AES-128** con `openssl`: el rele copia bytes, asi que sin descifrar
   entregaria texto cifrado. Respeta el IV explicito por segmento.
 - **Le pega el audio cuando el canal lo publica aparte.** Medido: 66 de 197

@@ -338,15 +338,9 @@ def check_stream(
 ) -> ProbeResult:
     """Valida un stream combinando metadatos y (segun el modo) bytes reales.
 
-    - Discussion: si se pasa ``settings``, la URL se reescribe antes de validar
-      (fuente de TV Azteca integrada: el token se resuelve aqui mismo). Sin
-      ``settings`` se valida la URL tal cual, que es lo que quieren los tests.
+    - Discussion: ``settings`` se conserva por compatibilidad con las llamadas
+      que ya lo pasan; la URL se valida tal cual viene.
     """
-    if settings is not None and settings.azteca_enabled:
-        from .azteca import reescribir_url
-
-        url = reescribir_url(url, settings.azteca_local_base, settings.azteca_enabled)
-
     if mode == "ffprobe":
         result = probe_ffprobe(url, timeout=timeout)
         manifest = _safe_manifest_flags(url, timeout)
