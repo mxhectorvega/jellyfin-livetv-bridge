@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jellyfin-livetv-bridge"
-version = "0.4.0"
+version = "0.4.1"
 description = "Puente de Live TV para Jellyfin: listas M3U/HLS a tuner + guia, con rele de colchon y cosido de la linea de tiempo."
 readme = "README.md"
 requires-python = ">=3.12"

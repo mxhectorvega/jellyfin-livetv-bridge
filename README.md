@@ -1,32 +1,89 @@
 # jellyfin-livetv-bridge
 
-Servicio que convierte listas M3U/HLS en un tuner + guia para **Jellyfin Live
-TV**, sin antena. Corre en un contenedor Docker (Debian + Python 3.12) dentro
-de un LXC de Proxmox; ffmpeg/ffprobe se invocan por `subprocess`.
+Convierte listas M3U/HLS en un **tuner con guia para Jellyfin Live TV**, sin
+antena. Corre en un contenedor Docker (Debian + Python 3.12) y no necesita
+hardware de captura.
 
-```
-sources.yml --> INGESTA --> VALIDACION --> NORMALIZACION --> EPG
-                                   |
-                                   v
-                        playlist.m3u + epg.xml  -->  Jellyfin
-                                   |
-                        API HTTP (FastAPI) /relay/<id>   (rele con colchon)
-                                           /stream/<id>  (proxy ffmpeg, copy)
-                                   |
-                        health-check -> desactiva/reactiva canales
+[![CI](https://github.com/mxhectorvega/jellyfin-livetv-bridge/actions/workflows/tests.yml/badge.svg)](https://github.com/mxhectorvega/jellyfin-livetv-bridge/actions/workflows/tests.yml)
+[![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+
+## Indice
+
+- [Arquitectura en una vista](#arquitectura-en-una-vista)
+- [Que resuelve y que NO](#que-resuelve-y-que-no)
+- [De dónde salen los canales](#de-dónde-salen-los-canales-el-repo-no-trae-ninguno)
+- [Arranque rapido (Docker)](#arranque-rapido-docker)
+- [Estructura](#estructura)
+- [Pruebas](#pruebas)
+- [Estándares que se comprueban](#estándares-que-se-comprueban)
+- [Catalogos: varios alimentados, uno visible](#catalogos-varios-alimentados-uno-visible)
+- [Conectar a Jellyfin Live TV (paso a paso)](#conectar-a-jellyfin-live-tv-paso-a-paso)
+- [Rele HLS con colchon](#rele-hls-con-colchon-relayid)
+- [Seguridad](#seguridad)
+- [Configuracion](#configuracion)
+- [Decisiones de diseno (y por que)](#decisiones-de-diseno-y-por-que)
+- [Limitaciones conocidas](#limitaciones-conocidas)
+- [Licencia](#licencia)
+
+Documentacion de apoyo:
+
+- [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — los cuatro niveles del modelo
+  C4, el flujo de un canal de punta a punta, y por que el sistema tiene esta
+  forma y no otra.
+- [`docs/CONFIGURACION.md`](docs/CONFIGURACION.md) — todas las variables y todos
+  los campos de `sources.yml`, con su valor por defecto.
+- [`CHANGELOG.md`](CHANGELOG.md) — que cambio y cuando.
+- [`DISCLAIMER.md`](DISCLAIMER.md) — alcance y uso.
+
+## Arquitectura en una vista
+
+Quien usa el sistema y de quien depende. El resto, en
+[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
+```mermaid
+C4Context
+  title Nivel 1 - Contexto
+
+  Person(espectador, "Espectador", "Ve la tele en Jellyfin: TV, movil o navegador")
+  System(jellyfin, "Jellyfin", "Servidor de medios. Sintoniza los canales por su tuner tipo m3u")
+  System(bridge, "jellyfin-livetv-bridge", "Publica la lista y la guia, y sirve cada canal como un flujo continuo")
+  System_Ext(pluto, "Pluto TV (CDN)", "Origen HLS. Segmentos cifrados en AES-128, con URL firmada que caduca")
+  System_Ext(guia, "Guia EPG", "XMLTV de la parrilla, publicada por i.mjh.nz")
+
+  Rel(espectador, jellyfin, "Elige el canal y lo mira")
+  Rel(jellyfin, bridge, "Pide la lista, la guia y el flujo del canal", "HTTP")
+  Rel(bridge, pluto, "Baja el master y los segmentos de video y audio", "HTTPS")
+  Rel(bridge, guia, "Baja la parrilla", "HTTPS")
+
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+  UpdateRelStyle(bridge, guia, $offsetX="-40", $offsetY="20")
 ```
 
 ## Que resuelve y que NO
 
-Resuelve: **catalogo + guia + validacion + salud** de tus propias listas, con
-un unico endpoint que Jellyfin consume como tuner `m3u`.
+**Resuelve**, y es el motivo de que exista:
 
-NO resuelve por si solo: los **cortes a comerciales / discontinuidades HLS** de
-proveedores que cambian de host a media emision (`EXT-X-DISCONTINUITY`). Ese
-caso necesita un intermediario con colchon propio (ver "Limitaciones
-conocidas"). Este servicio entrega el flujo por copia con `-fflags +genpts` e
-intenta reconectar, que cubre el caso comun, no el splicing de anuncios que
-cambia de host.
+- **El corte a comerciales.** Los origenes HLS de estos proveedores terminan el
+  flujo a media emision y Jellyfin lo lee como "el canal se acabo". El rele
+  `/relay/<id>` lo tapa: baja los segmentos por su cuenta, los mantiene en un
+  colchon y los sirve continuos.
+- **La discontinuidad de la linea de tiempo.** Al saltar a una fuente alterna,
+  `ts_splice.py` desplaza PCR, PTS y DTS para que el flujo siga con una sola
+  linea de tiempo en vez de cortarse.
+- **El audio que viene aparte.** Cuando el canal publica el audio en su propia
+  playlist, `ts_mux.py` lo junta con el video en un solo MPEG-TS.
+- **El cifrado AES-128** del HLS, que no es DRM y se descifra al vuelo.
+- **La salud de los canales**, con backoff y reactivacion automatica.
+- **El catalogo y la guia** de las listas que tu declares.
+
+**NO resuelve**:
+
+- **DRM de verdad** (CENC / SAMPLE-AES). Un canal con DRM se marca y se rechaza
+  con 403; no se intenta romper.
+- **El contenido en si.** El repo no trae ninguna lista de canales: tu declaras
+  las fuentes. Ver "De donde salen los canales".
+- **Grabar.** No guarda copia de nada; reemite lo que ya esta publicado.
 
 ## De dónde salen los canales (el repo NO trae ninguno)
 
@@ -84,6 +141,7 @@ src/
   health.py     etapa 7  health-check con backoff y activacion
   relay.py      extra    /relay/<id>: rele HLS con colchon propio y failover
   ts_splice.py  extra    cosido de PCR/PTS/DTS al cambiar de fuente (ISO 13818-1)
+  ts_mux.py     extra    junta el audio con el video en un solo MPEG-TS (PAT/PMT, CRC_32)
   api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml /relay/<id> /stream/<id>
   main.py       etapa 9  orquestador
 config/sources.example.yml    plantilla (datos FICTICIOS)
@@ -215,17 +273,15 @@ No hay que reiniciar nada.
 # Lee el estado actual
 GET  /catalogs              -> {"activo": "pluto", "catalogs": {"pluto": 198}}
 
-# Cambia en caliente (NO persiste tras reinicio)
+# Cambia en caliente. PERSISTE: queda escrito en /data/active_catalog.txt
 POST /catalog/pluto         -> cambia, reescribe M3U + XMLTV, devuelve conteos
 POST /catalog/todos         -> los publica juntos otra vez
-
-# Para que persista: edita config/sources.yml -> settings.active_catalog: "pluto"
-# y luego POST /catalog/pluto (o reinicia el contenedor)
 ```
 
-La seleccion se persiste en `/data/active_catalog.txt` (gana sobre el `.env`,
-asi el cambio por API siempre surte efecto). En Jellyfin, tras cambiar de
-catalogo hay que disparar `Actualizar canales` y `Refresh Guide`.
+La seleccion se persiste en `/data/active_catalog.txt` (gana sobre el `.env` y
+sobre `settings.active_catalog`, asi el cambio por API siempre surte efecto
+incluso tras reiniciar el contenedor). En Jellyfin, tras cambiar de catalogo hay
+que disparar `Actualizar canales` y `Refresh Guide`.
 
 **Sobre los canales que dejan de publicarse.** Medido al pasar de "todos" a solo
 Pluto: Jellyfin paso de **208 a 197 canales** con solo disparar `Actualizar

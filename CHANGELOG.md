@@ -8,6 +8,32 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.4.1] — 2026-10-14
+
+### Anadido
+
+- **`docs/ARQUITECTURA.md`**: el sistema descrito con el modelo **C4** — contexto,
+  contenedores y los componentes del rele — mas el flujo de un canal de punta a
+  punta en un diagrama de secuencia, y el porque de cada decision de forma. Los
+  diagramas son **Mermaid**, asi que GitHub los renderiza sin build step; se
+  comprobaron contra un renderizador real antes de publicarlos, no a ojo.
+- **`docs/CONFIGURACION.md`**: la referencia de configuracion, con cada campo de
+  `sources.yml` y cada variable de entorno con su valor por defecto.
+- **Indice y vista de contexto en el README.** La portada lleva el diagrama C4 de
+  nivel 1 y enlaza al resto.
+
+### Corregido
+
+- **El README se contradecia sobre el catalogo activo.** Una seccion decia que
+  `POST /catalog` no persistia y otra que si. La verdad esta en
+  `resolve_active_catalog()`: el POST escribe `/data/active_catalog.txt`, y ESE
+  archivo gana sobre el `.env` y sobre `settings.active_catalog`. Verificado
+  recreando el contenedor: siguio en `pluto`.
+- **El README decia que el servicio no resuelve los cortes a comerciales.**
+  Falso desde que existe el rele: `/relay/<id>` los absorbe con su colchon. La
+  seccion «Que resuelve y que NO» se reescribio con lo que el servicio hace hoy.
+- **`ts_mux.py` faltaba** en la lista de modulos de la seccion «Estructura».
+
 ## [0.4.0] — 2026-10-14
 
 ### Eliminado

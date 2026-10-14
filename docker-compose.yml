@@ -16,7 +16,7 @@ services:
         # UID/GID del dueno de /config y /data en el host (server:server).
         LVB_UID: "1000"
         LVB_GID: "1000"
-    image: jellyfin-livetv-bridge:0.4.0
+    image: jellyfin-livetv-bridge:0.4.1
     container_name: livetv-bridge
     env_file:
       - ./.env
@@ -31,10 +31,9 @@ services:
       - /home/server/jellyfin-livetv-bridge/data:/data:rw
       # Catalogos y guias que ya viven en el host (fuente de verdad, RO)
       - /home/server:/hostserver:ro
-    # Red del HOST: el catalogo de nacionales apunta a servicios que escuchan
-    # en 127.0.0.1 del CT (refresco-azteca en :8582, que renueva el token de TV
-    # Azteca). Con la red propia del contenedor ese 127.0.0.1 NO es el host y
-    # Azteca 7 queda inaccesible.
+    # Red del HOST: el contenedor necesita alcanzar el 127.0.0.1 del CT para
+    # cualquier servicio que escuche ahi, y publicar sus puertos sin mapeo.
+    # Con la red propia del contenedor ese 127.0.0.1 NO es el host.
     network_mode: host
     # ports:
     #   # host:contenedor — se publica en la IP de LAN del host (no 0.0.0.0).
