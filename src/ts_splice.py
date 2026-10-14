@@ -26,19 +26,69 @@ Lo que NO hace
   sale byte por byte igual.
 - No arregla un empalme a media imagen: si la fuente nueva arranca sin keyframe,
   el cuadro roto se ve. Eso es del codificador, no de la linea de tiempo.
-- No reescribe el ``continuity_counter`` de todos los paquetes. Seria lo unico
-  que falta para un empalme del todo invisible, y obliga a recorrer el 100% de
-  los paquetes en vez del ~5% que lleva sellos. Se mide antes de decidir.
+- **No reescribe el ``continuity_counter``, y NO hace falta que lo haga.** No es
+  una deuda pendiente de medir: la norma lo permite explicitamente. Ver abajo.
 
 Norma
 -----
-ISO/IEC 13818-1 | ITU-T H.222.0 (06/2012): **§2.4.3** Transport Stream (el
-``transport_packet()`` y su ``adaptation_field``) y **§2.4.3.6** PES packets,
-donde viven PTS y DTS. Ambas clausulas se confirmaron contra el texto de la
-recomendacion. La clausula exacta del ``adaptation_field`` queda pendiente de
-fijar contra el texto completo; los NOMBRES de campo usados aqui
-(``program_clock_reference_base``, ``program_clock_reference_extension``,
-``discontinuity_indicator``, ``continuity_counter``) si son los de la norma.
+ISO/IEC 13818-1 | ITU-T H.222.0 (06/2012), confirmado contra el texto de la
+recomendacion. Clausulas exactas:
+
+- **§2.4.3.3** *Semantic definition of fields in transport stream packet layer*
+  — el ``continuity_counter``: "The continuity_counter is a 4-bit field
+  incrementing with each transport stream packet with the same PID... The
+  continuity_counter shall not be incremented when the adaptation_field_control
+  of the packet equals '00' or '10'."
+- **§2.4.3.4** *Adaptation field* + **Tabla 2-6** *Transport stream adaptation
+  field* — la sintaxis del campo, que es donde vive el ``discontinuity_indicator``
+  (1 bit, ``bslbf``), junto con ``random_access_indicator``, ``PCR_flag`` y los
+  demas. La **Tabla 2-5** define ``adaptation_field_control`` (01 = sin campo de
+  adaptacion, solo carga util; 10 = solo campo de adaptacion; 11 = los dos).
+- **§2.4.3.5** *Semantic definition of fields in adaptation field* — el
+  ``discontinuity_indicator``: "indicates that the discontinuity state is true
+  for the current transport stream packet... The discontinuity indicator is used
+  to indicate two types of discontinuities, **system time-base discontinuities
+  and continuity_counter discontinuities**."
+
+Los nombres de campo que usa este modulo (``program_clock_reference_base``,
+``program_clock_reference_extension``, ``discontinuity_indicator``,
+``continuity_counter``, ``adaptation_field_control``) son los de la Tabla 2-6 y
+la §2.4.3.3, verbatim.
+
+Por que marcar el indicador es suficiente, y no reescribir el contador
+---------------------------------------------------------------------
+La norma define el mecanismo para exactamente este caso. §2.4.3.3:
+
+    "The continuity counter may be discontinuous when the
+     discontinuity_indicator is set to '1' (refer to 2.4.3.4)."
+
+Y §2.4.3.5 acota como se usa:
+
+    "A continuity_counter discontinuity is indicated by the use of the
+     discontinuity_indicator in any transport stream packet. When the
+     discontinuity state is true in any transport stream packet of a PID not
+     designated as a PCR_PID, the continuity_counter in that packet may be
+     discontinuous with respect to the previous transport stream packet of the
+     same PID. When the discontinuity state is true in a transport stream packet
+     of a PID that is designated as a PCR_PID, the continuity_counter may only
+     be discontinuous in the packet in which a system time-base discontinuity
+     occurs. A continuity counter discontinuity point shall occur at most one
+     time from the initiation of the discontinuity state until the conclusion of
+     the discontinuity state. Furthermore, for all PIDs that are not designated
+     as PCR_PIDs, when the discontinuity_indicator is set to '1' in a packet of
+     a specific PID, the discontinuity_indicator may be set to '1' in the next
+     transport stream packet of that same PID, but shall not be set to '1' in
+     three consecutive transport stream packets of that same PID."
+
+Marcar UN paquete por PID despues del empalme cae dentro de esas reglas: el
+"at most one time" se cumple porque se marca una sola vez, y el "shall not be set
+to '1' in three consecutive" tambien, porque no se marca en tres seguidos. Del
+lado del ``continuity_counter``, la norma lo unico que pide es que el punto de
+discontinuidad **ocurra a lo sumo una vez**, cosa que se cumple sin tocarlo.
+
+Costo de la alternativa que se descarto: reescribir el contador obligaria a
+recorrer el 100% de los paquetes en vez del ~5% que lleva sellos, a cambio de
+cero conformidad adicional.
 """
 
 from __future__ import annotations

@@ -50,17 +50,29 @@ from .util import get_logger
 log = get_logger("relay")
 
 # Reintentos del proveedor en cada descarga (los CDN FAST fallan a rachas).
+# 4 intentos con 0.8 s, 1.6 s y 2.4 s de espera: cubre un hueco de ~5 s sin
+# dejar al lector parado mas de ~7 s. Es un compromiso, no un valor afinado.
 DESCARGA_INTENTOS = 4
 DESCARGA_ESPERA_S = 0.8
+# Cotas de seguridad, NO valores afinados: el master de Pluto mide 14-18 KB y un
+# segmento tipico ~1.2 MB (medido: 311 KB/s con segmentos de ~4 s), asi que las
+# dos dejan mas de un orden de magnitud de margen. Estan para que un origen
+# hostil no llene la memoria, no para recortar el flujo normal.
 MANIFIESTO_MAX_BYTES = 2 * 1024 * 1024
 SEGMENTO_MAX_BYTES = 16 * 1024 * 1024
 SONDEO_S = 0.5  # cada cuanto se relee el playlist
-COLCHON_SEGMENTOS = 3  # distancia del cliente al frente de escritura
-MAX_SEGMENTOS = 15  # ventana que se conserva en memoria
+# Cuanto va el cliente DETRAS del frente. Con segmentos de ~4 s (medido) son
+# ~12 s de colchon: lo que tarda un hueco del origen en notarse.
+COLCHON_SEGMENTOS = 3
+# Ventana que se conserva en memoria: 15 segmentos ~= 60 s de contenido, o unos
+# 18 MB al caudal medido. El tope de bytes de abajo casi nunca manda; manda este.
+MAX_SEGMENTOS = 15
 MAX_BYTES = 32 * 1024 * 1024  # tope de la ventana por canal
 ARRANQUE_MAX_S = 3.0  # el primer byte tiene que salir antes que el sondeo de Jellyfin
 CLIENTE_OLVIDO_S = 60.0  # un cliente que no avanza tanto tiempo se da por muerto
-FALLOS_PARA_CAMBIAR = 3  # fallos consecutivos antes de saltar a la fuente alterna
+# Fallos CONSECUTIVOS antes de saltar a la fuente alterna. Con el colchon vacio
+# el umbral es 1 (ver _contar_fallo): ahi no hay nada que perder esperando.
+FALLOS_PARA_CAMBIAR = 3
 # Memoria de "ya bajado": basta recordar la ventana viva. Era un `set` sin tope
 # que crecia toda la vida del proceso (~30k URLs/dia en fuentes que rotan el
 # nombre de la variante: medido en Canal 5, 2,486 en 2 h -> ~2.75 GB/año).

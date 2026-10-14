@@ -8,6 +8,52 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.4.4] — 2026-10-14
+
+### Corregido
+
+- **Dos «deudas» que el propio codigo declaraba NO eran deuda: la norma las
+  permite.** `ts_splice.py` decia que no reescribir el `continuity_counter`
+  dejaba «lo unico que falta para un empalme del todo invisible» y pedia medirlo
+  antes de decidir. Leido el texto de ISO/IEC 13818-1 | ITU-T H.222.0 (06/2012):
+
+  ```
+  §2.4.3.3  "The continuity counter may be discontinuous when the
+             discontinuity_indicator is set to '1' (refer to 2.4.3.4)."
+
+  §2.4.3.5  "The discontinuity indicator is used to indicate two types
+             of discontinuities, system time-base discontinuities and
+             continuity_counter discontinuities."
+            "A continuity counter discontinuity point shall occur at
+             most one time from the initiation of the discontinuity
+             state until the conclusion of the discontinuity state."
+            "...shall not be set to '1' in three consecutive transport
+             stream packets of that same PID."
+  ```
+
+  Marcar UN paquete por PID cumple las dos reglas —una sola vez, y no en tres
+  seguidos— **sin tocar el contador**. Reescribirlo costaria recorrer el 100% de
+  los paquetes en vez del ~5% que lleva sellos, a cambio de cero conformidad
+  adicional. Se corrigio el texto del modulo, que declaraba una deuda donde habia
+  una decision correcta.
+
+- **Fijada la clausula que el modulo dejaba «pendiente»**: **§2.4.3.4**
+  *Adaptation field* + **Tabla 2-6** *Transport stream adaptation field* para la
+  sintaxis, y **§2.4.3.5** para la semantica. La **Tabla 2-5** define
+  `adaptation_field_control`. Los nombres de campo del modulo
+  (`discontinuity_indicator`, `continuity_counter`,
+  `program_clock_reference_base`, `program_clock_reference_extension`) coinciden
+  verbatim con los del texto.
+
+### Cambiado
+
+- **Justificados los umbrales del rele** que no tenian razon por valor. Los
+  derivables se derivan del caudal medido (311 KB/s con segmentos de ~4 s: 15
+  segmentos ~= 60 s ~= 18 MB); los que son cota de seguridad
+  (`MANIFIESTO_MAX_BYTES`, `SEGMENTO_MAX_BYTES`) **se dicen como tales** en vez
+  de aparentar que estan afinados. Donde la razon es un compromiso y no una
+  medicion, tambien se dice.
+
 ## [0.4.3] — 2026-10-14
 
 ### Corregido
