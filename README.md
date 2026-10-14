@@ -419,6 +419,16 @@ Que hace y que no:
 
 ## Seguridad
 
+- **La llave AES del HLS viaja en el argv del proceso `openssl`.** No es
+  descuido: `openssl enc` no acepta una llave CRUDA por archivo —`-kfile` y
+  `-pass` son para contraseñas y la derivan con un KDF—, así que el hex solo
+  cabe en la línea de comandos. La exposición está acotada a quien pueda leer
+  `/proc/<pid>/cmdline`: el único proceso con el mismo UID dentro del contenedor
+  es el propio relé, que ya tiene esa llave en memoria, y root del host la leería
+  de ahí igual. Por eso el argv nunca se registra en un log.
+- **La llave resuelta se cachea en memoria** (`self._claves`), con tope LRU, y
+  nunca se escribe a disco ni se sirve por la API.
+
 - `LVB_BIND_IP` publica el puerto en UNA interfaz (por ejemplo la IP de LAN);
   vacio = `0.0.0.0`. El `docker-compose.yml` usa `network_mode: host`, asi que
   sin esto el servicio escucha en todas las interfaces del host.

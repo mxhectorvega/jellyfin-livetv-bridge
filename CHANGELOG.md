@@ -8,6 +8,40 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.4.2] — 2026-10-14
+
+### Anadido
+
+- **`tests/test_main.py`: 12 pruebas para el orquestador.** `src/main.py` no
+  tenia ninguna, y es donde viven **dos invariantes que ya se rompieron una
+  vez**: el ORDEN de las etapas (normalizar antes de asociar respaldos, que
+  invertido deshabilitaba canales con respaldo vivo — medido con Canal 5) y el
+  TOPE de precalentado (sin el se abre un lector por canal publicado y se
+  satura el enlace de subida). Tambien cubre `persist_state` —incluido el modo
+  600 del estado, que lleva URLs firmadas— y `load_state` con archivo ausente y
+  con JSON corrupto. `src/main.py` paso de 0 a 12 pruebas.
+
+### Corregido
+
+- **Documentado por que la llave AES viaja en el argv de `openssl`**, que es el
+  punto que una auditoria marco como critico. Verificado que **no hay
+  alternativa**: `openssl enc` no acepta una llave CRUDA por archivo (`-kfile` y
+  `-pass` son para contraseñas y la derivan con un KDF, o sea otra llave). La
+  exposicion queda acotada a quien pueda leer `/proc/<pid>/cmdline`: dentro del
+  contenedor el unico proceso con el mismo UID es el propio rele, que ya tiene
+  esa llave en memoria, y root del host la leeria de ahi igual. El unico riesgo
+  real —que el argv acabe en un log— no aplica: el argv nunca se registra. Queda
+  anotado en `_descifrar` y en la seccion Seguridad del README.
+
+### Descartado tras verificarlo
+
+- **La carrera sobre `_vistos` NO existe.** El reporte decia que un hilo de
+  cliente podia marcarlo entre el chequeo y la descarga. Verificado leyendo el
+  codigo: `_vistos` tiene **un solo escritor** (el hilo lector), el `clear()` de
+  `_contar_fallo` va bajo lock y el `len()` de `stats()` tambien. La lectura sin
+  lock del lector es del mismo hilo. Se deja un comentario en el codigo
+  explicandolo, para que el siguiente auditor no lo vuelva a marcar.
+
 ## [0.4.1] — 2026-10-14
 
 ### Anadido

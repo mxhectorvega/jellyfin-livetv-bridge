@@ -472,6 +472,11 @@ class RelayHLS:
                     self._variante = self._resolver_variante()
                     continue
                 refs = self._segmentos_del_playlist(texto, self._variante)
+                # ``_vistos`` se lee aquí SIN lock, y es correcto: este hilo (el
+                # lector) es su ÚNICO escritor. Los otros dos accesos son el
+                # clear() de _contar_fallo y el len() de stats(), y los dos van
+                # bajo el lock. Tomarlo aquí no protegería de nada y sugeriría
+                # una carrera entre hilos que no existe.
                 pendientes = [(n, ref) for n, ref in enumerate(refs) if ref.url not in self._vistos]
                 audio_refs = self._refs_audio() if pendientes else {}
                 for n, ref in pendientes:
@@ -545,6 +550,17 @@ class RelayHLS:
         - Discussion: la stdlib de Python no trae AES, pero ``openssl`` sí está
           en la imagen base. Se le pasa el segmento por stdin y devuelve el
           plano por stdout; openssl quita solo el relleno PKCS7.
+        - Note: la llave va en el argv del hijo porque ``openssl enc`` NO acepta
+          una llave CRUDA por archivo: ``-kfile`` y ``-pass`` son para
+          contraseñas y derivan la llave con un KDF, así que no sirven para una
+          llave AES ya dada en hex. La exposición queda acotada a quien pueda
+          leer ``/proc/<pid>/cmdline``: en este contenedor el único proceso con
+          el mismo UID es el propio relé, que YA tiene la llave en memoria
+          (``self._claves``), y root del host la podría leer de ahí igual. El
+          riesgo real es que ese argv acabe en un log si alguien captura la
+          lista de procesos, y por eso el argv no se registra NUNCA. Cambiarlo
+          pide o la dependencia ``cryptography`` o un enlace por ctypes a
+          libcrypto; ninguna de las dos se justifica para este caso.
         - Note: sin atributo ``IV`` en el tag, el IV es el número de secuencia
           del segmento en 128 bits big-endian (lo que dice el RFC de HLS).
         """
