@@ -204,6 +204,10 @@ solo uno: `playlist.m3u` y `epg.xml` salen del catalogo activo. Asi Jellyfin ve
 un grupo a la vez (nacionales, o Pluto, o ViX) sin mantener tres tuners ni
 cambiar la URL.
 
+**Sacar un catalogo de la publicacion NO lo borra.** Los catalogos inactivos
+siguen alimentandose y validandose por dentro; volver a publicarlos es solo
+cambiar el campo y un `POST`.
+
 Cada fuente (o canal suelto) lleva su `catalog:` en `sources.yml`:
 
 ```yaml
@@ -216,19 +220,41 @@ sources:
     catalog: "pluto"
 ```
 
-El catalogo visible se fija con `LVB_ACTIVE_CATALOG` (o
-`settings.active_catalog`) y se puede cambiar **en caliente**, sin reiniciar ni
-re-descargar la guia:
+El catalogo activo se cambia **en caliente** con `POST /catalog/<nombre>`, y el
+cambio **persiste**: se guarda en `/data/active_catalog.txt`, que gana sobre el
+`.env` y sobre `settings.active_catalog`.
 
 ```
-GET  /catalogs              -> {"activo": "...", "catalogs": {...}, ...}
+/data/active_catalog.txt   la fuente de verdad (lo escribe el POST)
+settings.active_catalog    solo el default, para cuando ese archivo
+                           todavia no existe
+```
+
+Asi el cambio por API siempre surte efecto, incluso si el `.env` dice otra cosa.
+No hay que reiniciar nada.
+
+```bash
+# Lee el estado actual
+GET  /catalogs              -> {"activo": "pluto", "catalogs": {"nacionales": 10, "pluto": 198}}
+
+# Cambia en caliente (NO persiste tras reinicio)
 POST /catalog/pluto         -> cambia, reescribe M3U + XMLTV, devuelve conteos
 POST /catalog/todos         -> los publica juntos otra vez
+
+# Para que persista: edita config/sources.yml -> settings.active_catalog: "pluto"
+# y luego POST /catalog/pluto (o reinicia el contenedor)
 ```
 
 La seleccion se persiste en `/data/active_catalog.txt` (gana sobre el `.env`,
 asi el cambio por API siempre surte efecto). En Jellyfin, tras cambiar de
 catalogo hay que disparar `Actualizar canales` y `Refresh Guide`.
+
+**Sobre los canales que dejan de publicarse.** Medido al pasar de "todos" a solo
+Pluto: Jellyfin paso de **208 a 197 canales** con solo disparar `Actualizar
+canales` y `Refresh Guide`, **sin dejar fantasmas**. Existe el riesgo conocido de
+que Jellyfin conserve canales de un tuner que ya no los publica; si llegara a
+pasar, la via es reconstruir el tuner (quitarlo y reponerlo con un `Id` nuevo),
+respaldando el `livetv.xml` antes.
 
 ## Conectar a Jellyfin Live TV (paso a paso)
 

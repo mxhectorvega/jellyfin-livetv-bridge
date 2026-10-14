@@ -8,6 +8,27 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+## [0.3.0] — 2026-10-13
+
+### Cambiado
+
+- **Catalogo activo: ahora SOLO Pluto TV (198 canales).** Antes se publicaba
+  "todos" (10 nacionales + 198 Pluto = 208). En Jellyfin el conteo paso de **208
+  a 197** con solo disparar `Actualizar canales` y `Refresh Guide`, sin dejar
+  fantasmas. Medido: `GET /catalogs` responde
+  `{"activo": "pluto", "catalogs": {"nacionales": 10, "pluto": 198}}`.
+- **Documentado como se cambia el catalogo activo:** `POST /catalog/<nombre>`
+  persiste en `/data/active_catalog.txt`, que gana sobre el `.env` y sobre
+  `settings.active_catalog`. Ese archivo es la fuente de verdad; la clave de
+  configuracion solo es el default de cuando aun no existe.
+- **196 de 198 canales de Pluto accesibles** (medido). Los dos que no:
+  "Paisajes por Stingray" (fallo de red) y "NFL Channel" (HTTP 500 del CDN de
+  Pluto).
+- **196 de 198 vienen cifrados en AES-128** (NO es DRM: 0 con DRM real), 198 con
+  token firmado (caduca en 24 h), 0 piden auth.
+- **Resolucion tipica 640x360** en 169 de los 198 canales.
+- **0 canales de Pluto con respaldo declarado**.
+
 ## [0.2.2] — 2026-10-13
 
 ### Corregido
