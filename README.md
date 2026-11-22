@@ -20,6 +20,8 @@ hardware de captura.
 - [Catalogos: varios alimentados, uno visible](#catalogos-varios-alimentados-uno-visible)
 - [Conectar a Jellyfin Live TV (paso a paso)](#conectar-a-jellyfin-live-tv-paso-a-paso)
 - [Rele HLS con colchon](#rele-hls-con-colchon-relayid)
+- [Modo HLS nativo](#modo-hls-nativo-hlsidindexm3u8)
+- [Cadencia de actualizacion](#cadencia-de-actualizacion)
 - [Seguridad](#seguridad)
 - [Configuracion](#configuracion)
 - [Decisiones de diseno (y por que)](#decisiones-de-diseno-y-por-que)
@@ -33,6 +35,8 @@ Documentacion de apoyo:
   forma y no otra.
 - [`docs/CONFIGURACION.md`](docs/CONFIGURACION.md) — todas las variables y todos
   los campos de `sources.yml`, con su valor por defecto.
+- [`docs/ESTANDARES.md`](docs/ESTANDARES.md) — que norma rige cada pieza, la
+  seccion exacta que se leyo y donde se comprueba en el codigo.
 - [`CHANGELOG.md`](CHANGELOG.md) — que cambio y cuando.
 - [`DISCLAIMER.md`](DISCLAIMER.md) — alcance y uso.
 
@@ -142,7 +146,9 @@ src/
   relay.py      extra    /relay/<id>: rele HLS con colchon propio y failover
   ts_splice.py  extra    cosido de PCR/PTS/DTS al cambiar de fuente (ISO 13818-1)
   ts_mux.py     extra    junta el audio con el video en un solo MPEG-TS (PAT/PMT, CRC_32)
-  api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml /relay/<id> /stream/<id>
+  api.py        etapa 8  /health /status /catalogs /catalog/<x> /playlist.m3u /epg.xml
+                              /relay/<id> /stream/<id> y, en la bifurcacion HLS,
+                              /hls/<id>/index.m3u8 y /playlist-hls.m3u
   main.py       etapa 9  orquestador
 config/sources.example.yml    plantilla (datos FICTICIOS)
 tests/                        pytest: ingesta, validacion, normalizacion, M3U, XMLTV
@@ -224,8 +230,10 @@ video     ISO/IEC 13818-1 | ITU-T H.222.0 §2.4.3 y §2.4.3.6:
           0x0F = AAC con ADTS) y Anexo A (CRC_32), que se
           comprueba por el autocontrol de la norma y no contra
           un numero magico.
-HTTP      RFC 8216 §4 para el tipo de medio del M3U; HEAD
-          atendido, y 403 en vez de 409/451.
+HTTP      RFC 8216 §4 para el tipo de medio del M3U; RFC 9110 §15.5.4 para
+          el 403 de canal deshabilitado o con DRM; HEAD y 404 de canal
+          desconocido. El detalle y las citas textuales viven en
+          docs/ESTANDARES.md.
 XMLTV     validar_xmltv() revisa lo que el DTD exige ANTES de
           escribir la guia: una que no valida no reemplaza a una
           que si.
@@ -420,8 +428,9 @@ Que hace y que no:
 ## Modo HLS nativo (`/hls/<id>/index.m3u8`)
 
 Bifurcacion `hls-model` (imagen `jellyfin-livetv-bridge:hls-model`, contenedor
-`livetv-bridge-hls`, puerto 8582). Sirve el MISMO colchon del rele como HLS
-segmentado, para clientes que piden `.m3u8` en vez de un flujo MPEG-TS crudo.
+`livetv-bridge-hls`, puerto 8582). Es un proceso APARTE: tiene su propio
+pipeline, su propio estado y su propio colchon. No comparte memoria con el 8581.
+Sirve su propio colchon como HLS segmentado.
 
 ```
 GET /hls/<id>/index.m3u8   playlist en vivo desde el colchon
@@ -528,6 +537,11 @@ Un valor invalido **avisa y usa el de fabrica**; nunca impide el arranque.
   construccion; ademas acepta mapeos explicitos hacia guias externas.
 - **Copy por defecto.** Solo se recodifica si el codec lo exige (HEVC->H264,
   audio no-AAC->AAC) o si el perfil del canal lo pide.
+- **Dos modos de entrega, una sola logica.** El 8581 entrega MPEG-TS continuo
+  (`/relay/<id>`), que es lo que Jellyfin consume sin renegociar. El 8582 es una
+  bifurcacion HLS de pruebas (`/hls/<id>/index.m3u8`) con su propio proceso y su
+  propio colchon. No se publica el 8582 al tuner: duplicaria canales y gastaria
+  el doble de bajada.
 
 ## Limitaciones conocidas
 

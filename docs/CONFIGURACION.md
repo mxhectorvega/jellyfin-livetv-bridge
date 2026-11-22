@@ -135,10 +135,25 @@ LVB_RELAY_IDLE_S=900            # segundos sin clientes para apagar rele YA USAD
 
 ### Modo HLS (bifurcacion `hls-model`)
 
-No usa variables nuevas: el puerto se fija con `LVB_PORT` (8582 en el contenedor
-`livetv-bridge-hls`). Publica `/hls/<id>/index.m3u8`, `/hls/<id>/<n>.ts` y
-`/playlist-hls.m3u`. El colchon es el mismo del rele. El tuner de Jellyfin sigue
-en 8581; el 8582 no se publica al tuner.
+No usa variables nuevas. El puerto se fija con `LVB_PORT` (8582 en el contenedor
+`livetv-bridge-hls`). Expone:
+
+```
+GET /hls/<id>/index.m3u8    playlist en vivo desde su colchon
+GET /hls/<id>/<n>.ts        segmento por indice
+GET /playlist-hls.m3u       M3U con URLs HLS directas
+```
+
+Es un proceso aparte: su propio pipeline, su propio `data-hls/` y su propio
+colchon. No se publica al tuner de Jellyfin.
+
+### Cadencia
+
+```
+epg.refresh_hours          12 h    pipeline completo
+health_interval_s          300 s   health-check por canal
+Jellyfin (canales + guia)  6 h     tarea programada del lado de Jellyfin
+```
 
 ### Salud (resiliencia de canales)
 

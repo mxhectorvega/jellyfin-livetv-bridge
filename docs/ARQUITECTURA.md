@@ -62,7 +62,7 @@ C4Container
 
   Person(jellyfin, "Jellyfin", "Cliente del puente")
 
-  Container_Boundary(puente, "jellyfin-livetv-bridge (un contenedor)") {
+  Container_Boundary(puente, "jellyfin-livetv-bridge (produccion, 8581)") {
     Container(api, "API HTTP", "FastAPI y uvicorn", "Publica /playlist.m3u, /epg.xml, /status y atiende /relay/<id>")
     Container(pipeline, "Pipeline", "Python", "Ingesta, normaliza, sondea y escribe la lista y la guia")
     Container(rele, "Rele HLS", "Python, un hilo por canal", "Baja, descifra, muxea, cose y sirve con colchon propio")
@@ -86,6 +86,11 @@ C4Container
 
   UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
+
+La bifurcacion `hls-model` corre como un SEGUNDO contenedor independiente en el
+puerto 8582. Tiene su propio pipeline, su propio `state.json` y su propio
+colchon; no comparte memoria con el 8581. Es un banco de pruebas, no el tuner de
+Jellyfin.
 
 Lo que hay que notar:
 
@@ -154,6 +159,37 @@ Lo que hay que notar:
 
 ---
 
+## Flujo de entrega: los dos caminos
+
+El mismo nucleo (ingesta, estado, rele) se expone de dos formas. Jellyfin usa el
+camino de produccion; la bifurcacion HLS existe para probar el modelo segmentado.
+
+```mermaid
+flowchart LR
+  subgraph Prod["Produccion 8581 - tuner de Jellyfin"]
+    J1[Jellyfin] -->|"/playlist.m3u"| M1[API]
+    J1 -->|"/epg.xml"| M1
+    J1 -->|"/relay/id"| R1[RelayHLS]
+    R1 --> B1[Colchon 15 segmentos]
+    B1 -->|"MPEG-TS continuo"| J1
+    R1 -->|"HTTPS"| P1[Pluto CDN]
+  end
+  subgraph HLS["Bifurcacion 8582 - pruebas"]
+    C1[Cliente HLS] -->|"/hls/id/index.m3u8"| H1[API HLS]
+    C1 -->|"/hls/id/N.ts"| H1
+    H1 --> R2[RelayHLS]
+    R2 --> B2[Colchon propio]
+    B2 -->|"segmentos .ts"| H1
+    R2 -->|"HTTPS"| P2[Pluto CDN]
+  end
+  P1 -.->|"mismo origen"| P2
+```
+
+Los dos procesos tienen su propio estado y su propio colchon. No comparten
+memoria: si uno se reinicia, el otro sigue. El 8582 no se publica al tuner.
+
+---
+
 ## Flujo de un canal, de punta a punta
 
 Asi viaja un canal desde que existe una fuente hasta que se ve en una pantalla.
@@ -184,11 +220,25 @@ sequenceDiagram
 
 ---
 
-Variante HLS (bifurcacion `hls-model`): el mismo colchon se sirve como
-`/hls/<id>/index.m3u8` mas segmentos numerados. El pipeline de datos no cambia;
+Variante HLS (bifurcacion `hls-model`): es un proceso APARTE con su propio
+pipeline, estado y colchon. No comparte memoria con el 8581. Sirve su colchon
+como `/hls/<id>/index.m3u8` mas segmentos numerados. El pipeline de datos no cambia;
 solo cambia la capa de entrega. El tuner de Jellyfin sigue en 8581
 (`/relay/<id>`); el 8582 es el banco de pruebas. El token de Pluto se acuna por
 canal y el colchon se poda tambien mientras el lector espera hueco.
+
+## Cadencia real
+
+```
+Pipeline completo (ingesta, EPG, M3U)   12 h   (epg.refresh_hours)
+Health-check por canal                  300 s  (health_interval_s)
+Jellyfin: canales + guia                6 h    (IntervalTrigger 21600 s)
+Rele ya usado sin clientes              900 s  (se apaga)
+```
+
+El pipeline reescribe `data/playlist.m3u` y `data/epg.xml`. Jellyfin los jala por
+HTTP; no hay push. Los canales no se bajan todos a la vez: el rele se crea bajo
+demanda y solo se precalientan 16.
 
 ## Por que esta forma y no otra
 
