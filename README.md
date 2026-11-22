@@ -417,6 +417,49 @@ Que hace y que no:
   (`LVB_RELAY_PRECALENTAR_MAX`) y los reles que ya no se publican o que llevan
   rato sin clientes se apagan solos.
 
+## Modo HLS nativo (`/hls/<id>/index.m3u8`)
+
+Bifurcacion `hls-model` (imagen `jellyfin-livetv-bridge:hls-model`, contenedor
+`livetv-bridge-hls`, puerto 8582). Sirve el MISMO colchon del rele como HLS
+segmentado, para clientes que piden `.m3u8` en vez de un flujo MPEG-TS crudo.
+
+```
+GET /hls/<id>/index.m3u8   playlist en vivo desde el colchon
+GET /hls/<id>/<n>.ts       segmento por indice
+GET /playlist-hls.m3u      M3U con URLs /hls/<id>/index.m3u8
+```
+
+Diferencias con `/relay/<id>`:
+
+- **Token de Pluto POR CANAL.** El `resolver` recibe `cache_key=channel.id`, asi
+  que cada canal acuna su propio jwt. Compartir un solo token entre canales
+  cerraba la sesion del stitcher (401) y Jellyfin vaciaba los 201 canales.
+- **El colchon se poda mientras el lector espera hueco.** Antes `_podar()` solo
+  corria tras una descarga: con el colchon lleno el lector esperaba hasta 30 s,
+  el cliente recibia ~2 s de video y se veia una pausa cada minuto. Ahora
+  `_esperar_hueco()` poda y libera lo que TODOS los clientes ya consumieron
+  (tope 8 s), sin esperar a la siguiente descarga.
+- **`FiltroPrograma`** (`src/ts_mux.py`) deja UN solo programa cuando el TS de
+  origen trae varios PAT/PMT, y `playlist()` arma el `.m3u8` desde el colchon
+  con `EXT-X-MEDIA-SEQUENCE` y `TARGETDURATION` reales.
+
+Jellyfin sigue apuntando al tuner `http://10.0.0.21:8581/playlist.m3u`
+(`/relay/<id>`). El 8582 es el banco de pruebas HLS: no se publica al tuner.
+
+## Cadencia de actualizacion
+
+```
+Pipeline completo (ingesta, validacion, EPG, M3U)   cada 12 h  (epg.refresh_hours)
+Health-check por canal                              cada 300 s (health_interval_s)
+Jellyfin: Actualizar canales + Refresh Guide         cada 6 h  (IntervalTrigger)
+Rele sin clientes (ya usado)                        se apaga a los 900 s
+```
+
+El pipeline reescribe `/data/playlist.m3u` y `/data/epg.xml`; Jellyfin los lee
+por HTTP de `http://10.0.0.21:8581`. No hay push: Jellyfin jala cuando su
+tarea programada despierta. Los canales NO se consumen todos a la vez: el rele
+se crea bajo demanda al primer cliente y solo los primeros 16 se precalientan.
+
 ## Seguridad
 
 - **La llave AES del HLS viaja en el argv del proceso `openssl`.** No es
@@ -505,6 +548,8 @@ Un valor invalido **avisa y usa el de fabrica**; nunca impide el arranque.
   rara vez tienen guia publica.
 - **Salud:** un origen puede callar varios segundos de forma normal; el
   umbral por defecto es 3 fallos consecutivos con backoff.
+- **Modo HLS (`hls-model`):** bifurcacion de pruebas en el puerto 8582. El
+  tuner de Jellyfin sigue en 8581; no se publica el 8582 al tuner.
 
 ## Licencia
 

@@ -8,6 +8,21 @@ el comando y la salida estan en el commit que la introdujo.
 
 ## [Sin publicar]
 
+### Anadido
+
+- **Bifurcacion `hls-model` (puerto 8582):** sirve el colchon del rele como
+  `/hls/<id>/index.m3u8` + segmentos numerados, con `/playlist-hls.m3u`.
+  Incluye `FiltroPrograma` para dejar un solo programa en TS multi-PMT.
+
+### Corregido
+
+- **Pausa cada minuto en el rele.** `_podar()` solo corria tras una descarga;
+  con el colchon lleno el lector esperaba 30 s y el cliente recibia ~2 s de
+  video por pausa. Ahora `_esperar_hueco()` poda mientras espera (tope 8 s) y
+  libera lo que todos los clientes ya consumieron.
+- **Token de Pluto por canal.** El `resolver` usa `cache_key=channel.id`; un
+  solo jwt compartido cerraba el stitcher y dejaba los canales en 401.
+
 ## [0.4.4] — 2026-10-14
 
 ### Corregido

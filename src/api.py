@@ -38,7 +38,6 @@ from . import __version__
 from .config import Settings
 from .health import HealthMonitor
 from .models import Channel
-from .pluto_token import refresh_url
 from .playlist import (
     build_m3u,
     catalogs_of,
@@ -46,6 +45,7 @@ from .playlist import (
     set_active_catalog,
     write_active_outputs,
 )
+from .pluto_token import refresh_url
 from .relay import RelayPool
 from .transcode import build_ffmpeg_cmd, can_transcode, plan_for
 from .util import get_logger
@@ -320,6 +320,73 @@ def create_app(state: AppState) -> FastAPI:
             paso_cuadro=state.settings.relay_paso_cuadro,
         )
         return StreamingResponse(relay.servir(), media_type="video/mp2t")
+
+    @app.get("/hls/{channel_id}/index.m3u8")
+    async def hls_playlist(channel_id: str) -> PlainTextResponse:
+        """Playlist HLS en vivo desde el colchon del rele."""
+        channel = state.get_channel(channel_id)
+        if channel is None:
+            raise HTTPException(status_code=404, detail="canal desconocido")
+        if not channel.enabled:
+            raise HTTPException(
+                status_code=404, detail=f"canal deshabilitado: {channel.disabled_reason}"
+            )
+        if channel.probe.drm:
+            raise HTTPException(status_code=404, detail="DRM/CENC: no reproducible")
+        relay = state.relay_pool.get(
+            channel_id,
+            fuentes_de_canal(channel),
+            state.settings.relay_user_agent,
+            resolver=resolver_de_canal(channel, state.settings),
+            remendar=state.settings.relay_remendar,
+            paso_cuadro=state.settings.relay_paso_cuadro,
+        )
+        text = relay.playlist()
+        if not text:
+            raise HTTPException(status_code=503, detail="colchon vacio")
+        return PlainTextResponse(
+            text,
+            media_type="application/vnd.apple.mpegurl",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/hls/{channel_id}/{idx}.ts")
+    async def hls_segment(channel_id: str, idx: int) -> Response:
+        """Segmento TS del colchon del rele."""
+        channel = state.get_channel(channel_id)
+        if channel is None:
+            raise HTTPException(status_code=404, detail="canal desconocido")
+        if not channel.enabled:
+            raise HTTPException(
+                status_code=404, detail=f"canal deshabilitado: {channel.disabled_reason}"
+            )
+        if channel.probe.drm:
+            raise HTTPException(status_code=404, detail="DRM/CENC: no reproducible")
+        relay = state.relay_pool.get(
+            channel_id,
+            fuentes_de_canal(channel),
+            state.settings.relay_user_agent,
+            resolver=resolver_de_canal(channel, state.settings),
+            remendar=state.settings.relay_remendar,
+            paso_cuadro=state.settings.relay_paso_cuadro,
+        )
+        data = relay.segmento(idx)
+        if data is None:
+            raise HTTPException(status_code=404, detail="segmento no disponible")
+        return Response(data, media_type="video/mp2t", headers={"Cache-Control": "no-store"})
+
+    @app.get("/playlist-hls.m3u")
+    async def playlist_hls() -> PlainTextResponse:
+        """M3U con URLs HLS directas (sin transcodificar en Jellyfin)."""
+        text = build_m3u(
+            select_for_output(state.channel_list(), state.settings),
+            state.settings,
+            use_relay=True,
+            use_hls=True,
+        )
+        return PlainTextResponse(
+            text, media_type="audio/mpegurl", headers={"Cache-Control": "no-store"}
+        )
 
     @app.get("/stream/{channel_id}")
     async def stream(channel_id: str) -> StreamingResponse:

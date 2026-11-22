@@ -184,6 +184,12 @@ sequenceDiagram
 
 ---
 
+Variante HLS (bifurcacion `hls-model`): el mismo colchon se sirve como
+`/hls/<id>/index.m3u8` mas segmentos numerados. El pipeline de datos no cambia;
+solo cambia la capa de entrega. El tuner de Jellyfin sigue en 8581
+(`/relay/<id>`); el 8582 es el banco de pruebas. El token de Pluto se acuna por
+canal y el colchon se poda tambien mientras el lector espera hueco.
+
 ## Por que esta forma y no otra
 
 - **Un hilo por canal, no uno por cliente.** Un canal se baja UNA vez aunque lo

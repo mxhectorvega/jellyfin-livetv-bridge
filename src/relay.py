@@ -32,6 +32,7 @@ así que no hay re-timestamping, ni reinicio de PTS en cero, ni
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
 import threading
@@ -519,7 +520,10 @@ class RelayHLS:
                             "relay: playlist vacio, re-resolviendo master",
                             extra={
                                 "channel": self.nombre,
-                                "detail": f"len={len(texto)} var={variante_actual[:160]} texto={texto[:120]!r}",
+                                "detail": (
+                                    f"len={len(texto)} var={variante_actual[:160]} "
+                                    f"texto={texto[:120]!r}"
+                                ),
                             },
                         )
                         continue
@@ -701,7 +705,7 @@ class RelayHLS:
         self._rem.procesar(buf)
         return bytes(buf)
 
-    def _esperar_hueco(self, max_s: float = 30.0) -> None:
+    def _esperar_hueco(self, max_s: float = 8.0) -> None:
         """No baja mas si el colchon esta lleno y hay alguien viendo.
 
         - Discussion: sin esto el lector se adelanta al tope, `_podar()` suelta
@@ -719,6 +723,13 @@ class RelayHLS:
         while not self._stop.is_set():
             with self._lock:
                 if not self._clientes or len(self._buf) < MAX_SEGMENTOS:
+                    return
+            # El colchon lleno no es excusa para no podar: si el cliente ya
+            # consumio, ese hueco se libera AQUI. Antes solo se podaba tras
+            # una descarga y el lector se quedaba 30 s esperando hueco.
+            self._podar()
+            with self._lock:
+                if len(self._buf) < MAX_SEGMENTOS:
                     return
             if time.monotonic() >= limite:
                 return
@@ -739,6 +750,16 @@ class RelayHLS:
             for cid, (_idx, visto) in list(self._clientes.items()):
                 if ahora - visto > CLIENTE_OLVIDO_S:
                     self._clientes.pop(cid, None)
+
+            # Suelta lo que TODOS los clientes ya consumieron. Sin esto el
+            # colchon no se libera nunca: solo `_podar` borra, y `_podar` solo
+            # corre tras una descarga, asi que el lector se quedaba esperando
+            # hueco hasta el tope de 30 s y el cliente recibia 2 s de video
+            # cada 30 s (pausa visible cada ~30 s).
+            if self._clientes:
+                minimo = min(idx for idx, _visto in self._clientes.values())
+                while self._buf and next(iter(self._buf)) < minimo:
+                    del self._buf[next(iter(self._buf))]
 
             while len(self._buf) > MAX_SEGMENTOS:
                 del self._buf[next(iter(self._buf))]
@@ -796,6 +817,47 @@ class RelayHLS:
                 "pid_audio": self._pid_audio,
                 "estancamientos": self._estancamientos,
             }
+
+    def playlist(self, espera_s: float = 3.0) -> str:
+        """Playlist HLS en vivo desde el colchon interno."""
+        limite = time.time() + espera_s
+        while time.time() < limite:
+            with self._lock:
+                if self._buf:
+                    break
+            time.sleep(0.05)
+        with self._lock:
+            if not self._buf:
+                return ""
+            primero = self._primero
+            frente = self._frente
+            duraciones = [s.dur for s in self._buf.values() if s.dur > 0]
+            objetivo = max(4, int(math.ceil(max(duraciones))) if duraciones else 4)
+            lineas = [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                f"#EXT-X-TARGETDURATION:{objetivo}",
+                f"#EXT-X-MEDIA-SEQUENCE:{primero}",
+            ]
+            for idx in range(primero, frente):
+                seg = self._buf.get(idx)
+                if seg is None:
+                    continue
+                lineas.append(f"#EXTINF:{seg.dur:.3f},")
+                lineas.append(f"{idx}.ts")
+            self._tuvo_clientes = True
+            self._ultimo_cliente = time.monotonic()
+            return "\n".join(lineas) + "\n"
+
+    def segmento(self, idx: int) -> bytes | None:
+        """Devuelve un segmento del colchon por indice."""
+        with self._lock:
+            seg = self._buf.get(idx)
+            if seg is None:
+                return None
+            self._tuvo_clientes = True
+            self._ultimo_cliente = time.monotonic()
+            return seg.datos
 
     # ---------------------------------------------------------------- cliente
     def servir(self, espera_max_s: float = ARRANQUE_MAX_S) -> Iterator[bytes]:

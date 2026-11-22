@@ -133,6 +133,13 @@ LVB_RELAY_PRECALENTAR_MAX=16    # maximo reles precalentados a la vez (0 - 4096)
 LVB_RELAY_IDLE_S=900            # segundos sin clientes para apagar rele YA USADO (0 - 86400); precalentados no cuentan
 ```
 
+### Modo HLS (bifurcacion `hls-model`)
+
+No usa variables nuevas: el puerto se fija con `LVB_PORT` (8582 en el contenedor
+`livetv-bridge-hls`). Publica `/hls/<id>/index.m3u8`, `/hls/<id>/<n>.ts` y
+`/playlist-hls.m3u`. El colchon es el mismo del rele. El tuner de Jellyfin sigue
+en 8581; el 8582 no se publica al tuner.
+
 ### Salud (resiliencia de canales)
 
 Controlan el health-check periodico que desactiva/reactiva canales.
