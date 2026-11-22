@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import Settings
 from .models import Channel, ProbeResult
+from .pluto_token import refresh_url
 from .util import get_logger, http_get, now_iso, run_cmd
 
 log = get_logger("probe")
@@ -395,6 +396,11 @@ def check_channel(channel: Channel, settings: Settings) -> ProbeResult:
     ultimo: ProbeResult | None = None
     errores: list[str] = []
     for idx, url in enumerate(fuentes):
+        # El jwt de Pluto vence a las ~24 h: se reescribe antes de sondear, o
+        # el canal se marcaria muerto teniendo un token solo viejo.
+        url = refresh_url(url)
+        if idx == 0:
+            channel.source_url = url
         resultado = check_stream(url, settings.probe_timeout_s, settings.probe_mode, settings)
         resultado.respaldo_idx = idx - 1
         if resultado.accessible:

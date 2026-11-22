@@ -38,6 +38,7 @@ from . import __version__
 from .config import Settings
 from .health import HealthMonitor
 from .models import Channel
+from .pluto_token import refresh_url
 from .playlist import (
     build_m3u,
     catalogs_of,
@@ -100,7 +101,11 @@ def resolver_de_canal(channel: Channel, settings: Settings):
     fuentes = fuentes_de_canal(channel)
 
     def _resolver(idx: int = 0, forzar: bool = False) -> str:
-        return fuentes[max(0, min(int(idx), len(fuentes) - 1))]
+        url = fuentes[max(0, min(int(idx), len(fuentes) - 1))]
+        # ``forzar`` llega tras un 401/403: pide token NUEVO, no el cacheado.
+        # cache_key=channel.id: el stitcher cierra la sesion si el mismo jwt se
+        # usa en otro canal, asi que cada rele lleva su propio token.
+        return refresh_url(url, force=forzar, cache_key=channel.id)
 
     return _resolver
 

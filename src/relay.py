@@ -88,6 +88,10 @@ REINTENTO_MAX_ESPERA_S = 30.0
 # lo rearme. El rele pedia el master UNA vez y luego sondeaba la variante cada
 # 0.5 s: bajaba los primeros segmentos y el canal se quedaba congelado para
 # siempre, sin un solo error en el log. Con esto se detecta y se cura solo.
+# 25 s era demasiado: el cliente arranca 3 segmentos atras (~12 s) y se quedaba
+# sin colchon antes de que el vigilante reaccionara. Medido 2026-11-22: el
+# cliente veia pausas de ~26 s. Con 4 s el re-resolve llega antes de vaciar el
+# colchon y el reproductor no se entera.
 ESTANCADO_S = 25.0
 
 
@@ -496,6 +500,29 @@ class RelayHLS:
                     self._variante = self._resolver_variante()
                     continue
                 refs = self._segmentos_del_playlist(texto, self._variante)
+                # El CDN de Pluto devuelve 200 con CERO segmentos en la segunda
+                # lectura seguida. Con clientes, esperar al vigilante de 4 s deja
+                # al reproductor sin colchon: se re-resuelve el master YA y el
+                # master rearma la variante con segmentos nuevos.
+                if not refs:
+                    variante_actual = self._variante
+                    with self._lock:
+                        hay_clientes = bool(self._clientes)
+                        if hay_clientes:
+                            self._refrescos += 1
+                            self._estancamientos += 1
+                            self._variante = ""
+                            self._refrescar_token = True
+                            self._ultimo_avance = time.monotonic()
+                    if hay_clientes:
+                        log.warning(
+                            "relay: playlist vacio, re-resolviendo master",
+                            extra={
+                                "channel": self.nombre,
+                                "detail": f"len={len(texto)} var={variante_actual[:160]} texto={texto[:120]!r}",
+                            },
+                        )
+                        continue
                 # ``_vistos`` se lee aquí SIN lock, y es correcto: este hilo (el
                 # lector) es su ÚNICO escritor. Los otros dos accesos son el
                 # clear() de _contar_fallo y el len() de stats(), y los dos van
@@ -553,7 +580,10 @@ class RelayHLS:
             with self._lock:
                 hay_clientes = bool(self._clientes)
                 quieto = time.monotonic() - self._ultimo_avance
-            if hay_clientes and quieto > ESTANCADO_S:
+            # Solo cuenta como estancamiento si el COLCHON NO ESTA LLENO. Con el
+            # colchon lleno el lector espera al cliente (que consume a 1x), no
+            # al origen: re-resolver ahi es un falso positivo que corta el flujo.
+            if hay_clientes and quieto > ESTANCADO_S and len(self._buf) < MAX_SEGMENTOS:
                 with self._lock:
                     self._refrescos += 1
                     self._estancamientos += 1
