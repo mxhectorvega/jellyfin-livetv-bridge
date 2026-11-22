@@ -6,22 +6,31 @@ Versionado: [SemVer](https://semver.org/lang/es/).
 Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
 el comando y la salida estan en el commit que la introdujo.
 
-## [Sin publicar]
+## [0.5.0] — 2026-11-22
 
-### Anadido
+### Eliminado
 
-- **Bifurcacion `hls-model` (puerto 8582):** sirve el colchon del rele como
-  `/hls/<id>/index.m3u8` + segmentos numerados, con `/playlist-hls.m3u`.
-  Incluye `FiltroPrograma` para dejar un solo programa en TS multi-PMT.
+- **Bifurcacion HLS.** Se retiran los endpoints `/hls/<id>/index.m3u8`,
+  `/hls/<id>/<n>.ts` y `/playlist-hls.m3u`, el parametro `use_hls` de
+  `playlist.py`, los metodos `RelayHLS.playlist()` y `RelayHLS.segmento()`, y
+  la clase `FiltroPrograma` de `ts_mux.py` (no estaba conectada a ningun flujo).
+  El contenedor `livetv-bridge-hls` y su imagen se eliminan. El unico camino de
+  entrega es `/relay/<id>`.
 
 ### Corregido
 
-- **Pausa cada minuto en el rele.** `_podar()` solo corria tras una descarga;
-  con el colchon lleno el lector esperaba 30 s y el cliente recibia ~2 s de
-  video por pausa. Ahora `_esperar_hueco()` poda mientras espera (tope 8 s) y
-  libera lo que todos los clientes ya consumieron.
-- **Token de Pluto por canal.** El `resolver` usa `cache_key=channel.id`; un
-  solo jwt compartido cerraba el stitcher y dejaba los canales en 401.
+- **Pausa cada minuto en el rele.** `_podar()` ahora suelta lo que los clientes
+  ya consumieron y `_esperar_hueco()` poda mientras espera hueco (tope 8 s).
+  Antes el lector se quedaba 30 s esperando y el cliente recibia 2 s de video.
+- **Token de Pluto por canal.** `_mint()` y `_resolver()` reciben
+  `cache_key=channel.id`; un jwt compartido cerraba la sesion del stitcher.
+
+### Cambiado
+
+- Version 0.5.0. La imagen publicada es `jellyfin-livetv-bridge:0.5.0`.
+- Documentacion: se retiran las secciones HLS de README, ARQUITECTURA y
+  CONFIGURACION. `docs/ESTANDARES.md` distingue el HLS que se consume del M3U
+  extendido que se publica.
 
 ## [0.4.4] — 2026-10-14
 

@@ -576,11 +576,12 @@ def test_rele_remiendo_apagado_no_toca_nada():
     assert r._remiendos == 0
 
 
-def test_rele_el_lector_no_se_adelanta_al_tope_con_clientes():
-    """Con alguien viendo, el lector espera a que el colchon baje del tope.
+def test_rele_el_lector_poda_lo_consumido_y_no_espera():
+    """Si los clientes ya consumieron, el lector libera y sigue.
 
-    Sin esto se sueltan por la izquierda segmentos que el cliente no consumio:
-    medido, 24.1 s de contenido perdidos en un cambio de fuente.
+    La poda usa el indice MINIMO de los clientes. Antes solo se podaba tras
+    una descarga, asi que el lector esperaba 30 s con el colchon lleno y el
+    cliente recibia 2 s de video cada 30 s.
     """
     r = RelayHLS(["http://a/1.m3u8"], nombre="x")
     for i in range(1, 20):
@@ -589,13 +590,21 @@ def test_rele_el_lector_no_se_adelanta_al_tope_con_clientes():
     r._clientes[1] = (17, time.monotonic())
     inicio = time.monotonic()
     assert r._esperar_hueco(max_s=0.5) is None
-    assert time.monotonic() - inicio >= 0.5, "debio esperar"
-    # el cliente consume y el colchon baja del tope: el lector sigue
-    for i in range(1, 6):
-        del r._buf[i]
+    assert time.monotonic() - inicio < 0.1, "con material consumido debe podar y seguir"
+    assert 1 not in r._buf and 16 not in r._buf
+    assert 17 in r._buf
+
+
+def test_rele_el_lector_espera_si_el_cliente_esta_al_frente():
+    """Sin material consumible, el lector espera a que el cliente avance."""
+    r = RelayHLS(["http://a/1.m3u8"], nombre="x")
+    for i in range(1, 20):
+        r._buf[i] = Segmento(i, f"u{i}", b"\x47" * 16, 8.0)
+    r._frente, r._primero = 19, 5
+    r._clientes[1] = (5, time.monotonic())
     inicio = time.monotonic()
-    r._esperar_hueco(max_s=1.0)
-    assert time.monotonic() - inicio < 0.1, "con hueco no debe esperar"
+    assert r._esperar_hueco(max_s=0.5) is None
+    assert time.monotonic() - inicio >= 0.5, "debio esperar"
 
 
 def test_rele_el_lector_no_espera_sin_clientes():

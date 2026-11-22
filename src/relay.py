@@ -32,7 +32,6 @@ así que no hay re-timestamping, ni reinicio de PTS en cero, ni
 
 from __future__ import annotations
 
-import math
 import re
 import subprocess
 import threading
@@ -817,47 +816,6 @@ class RelayHLS:
                 "pid_audio": self._pid_audio,
                 "estancamientos": self._estancamientos,
             }
-
-    def playlist(self, espera_s: float = 3.0) -> str:
-        """Playlist HLS en vivo desde el colchon interno."""
-        limite = time.time() + espera_s
-        while time.time() < limite:
-            with self._lock:
-                if self._buf:
-                    break
-            time.sleep(0.05)
-        with self._lock:
-            if not self._buf:
-                return ""
-            primero = self._primero
-            frente = self._frente
-            duraciones = [s.dur for s in self._buf.values() if s.dur > 0]
-            objetivo = max(4, int(math.ceil(max(duraciones))) if duraciones else 4)
-            lineas = [
-                "#EXTM3U",
-                "#EXT-X-VERSION:3",
-                f"#EXT-X-TARGETDURATION:{objetivo}",
-                f"#EXT-X-MEDIA-SEQUENCE:{primero}",
-            ]
-            for idx in range(primero, frente):
-                seg = self._buf.get(idx)
-                if seg is None:
-                    continue
-                lineas.append(f"#EXTINF:{seg.dur:.3f},")
-                lineas.append(f"{idx}.ts")
-            self._tuvo_clientes = True
-            self._ultimo_cliente = time.monotonic()
-            return "\n".join(lineas) + "\n"
-
-    def segmento(self, idx: int) -> bytes | None:
-        """Devuelve un segmento del colchon por indice."""
-        with self._lock:
-            seg = self._buf.get(idx)
-            if seg is None:
-                return None
-            self._tuvo_clientes = True
-            self._ultimo_cliente = time.monotonic()
-            return seg.datos
 
     # ---------------------------------------------------------------- cliente
     def servir(self, espera_max_s: float = ARRANQUE_MAX_S) -> Iterator[bytes]:

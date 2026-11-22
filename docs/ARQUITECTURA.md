@@ -87,11 +87,6 @@ C4Container
   UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
-La bifurcacion `hls-model` corre como un SEGUNDO contenedor independiente en el
-puerto 8582. Tiene su propio pipeline, su propio `state.json` y su propio
-colchon; no comparte memoria con el 8581. Es un banco de pruebas, no el tuner de
-Jellyfin.
-
 Lo que hay que notar:
 
 - **El pipeline y el rele no comparten memoria, comparten disco.** El pipeline
@@ -159,37 +154,6 @@ Lo que hay que notar:
 
 ---
 
-## Flujo de entrega: los dos caminos
-
-El mismo nucleo (ingesta, estado, rele) se expone de dos formas. Jellyfin usa el
-camino de produccion; la bifurcacion HLS existe para probar el modelo segmentado.
-
-```mermaid
-flowchart LR
-  subgraph Prod["Produccion 8581 - tuner de Jellyfin"]
-    J1[Jellyfin] -->|"/playlist.m3u"| M1[API]
-    J1 -->|"/epg.xml"| M1
-    J1 -->|"/relay/id"| R1[RelayHLS]
-    R1 --> B1[Colchon 15 segmentos]
-    B1 -->|"MPEG-TS continuo"| J1
-    R1 -->|"HTTPS"| P1[Pluto CDN]
-  end
-  subgraph HLS["Bifurcacion 8582 - pruebas"]
-    C1[Cliente HLS] -->|"/hls/id/index.m3u8"| H1[API HLS]
-    C1 -->|"/hls/id/N.ts"| H1
-    H1 --> R2[RelayHLS]
-    R2 --> B2[Colchon propio]
-    B2 -->|"segmentos .ts"| H1
-    R2 -->|"HTTPS"| P2[Pluto CDN]
-  end
-  P1 -.->|"mismo origen"| P2
-```
-
-Los dos procesos tienen su propio estado y su propio colchon. No comparten
-memoria: si uno se reinicia, el otro sigue. El 8582 no se publica al tuner.
-
----
-
 ## Flujo de un canal, de punta a punta
 
 Asi viaja un canal desde que existe una fuente hasta que se ve en una pantalla.
@@ -219,13 +183,6 @@ sequenceDiagram
 ```
 
 ---
-
-Variante HLS (bifurcacion `hls-model`): es un proceso APARTE con su propio
-pipeline, estado y colchon. No comparte memoria con el 8581. Sirve su colchon
-como `/hls/<id>/index.m3u8` mas segmentos numerados. El pipeline de datos no cambia;
-solo cambia la capa de entrega. El tuner de Jellyfin sigue en 8581
-(`/relay/<id>`); el 8582 es el banco de pruebas. El token de Pluto se acuna por
-canal y el colchon se poda tambien mientras el lector espera hueco.
 
 ## Cadencia real
 

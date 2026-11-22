@@ -40,7 +40,6 @@ def channel_url(
     settings: Settings,
     use_proxy: bool = True,
     use_relay: bool = False,
-    use_hls: bool = False,
 ) -> str:
     """URL que se publica para un canal.
 
@@ -57,8 +56,6 @@ def channel_url(
     base = settings.public_base
     if not base:
         base = f"http://127.0.0.1:{settings.port}"
-    if use_hls:
-        return f"{base}/hls/{urllib.parse.quote(channel.id)}/index.m3u8"
     ruta = "relay" if use_relay else "stream"
     return f"{base}/{ruta}/{urllib.parse.quote(channel.id)}"
 
@@ -68,7 +65,6 @@ def build_m3u(
     settings: Settings,
     use_proxy: bool = True,
     use_relay: bool = False,
-    use_hls: bool = False,
 ) -> str:
     """Construye el texto del M3U.
 
@@ -87,9 +83,7 @@ def build_m3u(
             f'tvg-logo="{m3u_attr(ch.logo)}" '
             f'group-title="{m3u_attr(ch.group)}",{m3u_attr(ch.name)}'
         )
-        lines.append(
-            channel_url(ch, settings, use_proxy=use_proxy, use_relay=use_relay, use_hls=use_hls)
-        )
+        lines.append(channel_url(ch, settings, use_proxy=use_proxy, use_relay=use_relay))
         emitted += 1
     log.info("playlist construida", extra={"count": emitted})
     return "\n".join(lines) + "\n"
