@@ -5,6 +5,7 @@ canal. Un reproductor que se quede con el primer PMT nota la diferencia.
 """
 
 import json
+import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -14,7 +15,11 @@ sys.path.insert(0, str(RAIZ))
 
 from src.ts_mux import es_de, leer_pmt, pids_usados  # noqa: E402
 
-B = "http://10.0.0.21:8581"
+# La base del servicio NO se versiona: es una IP de LAN. Se pasa por entorno.
+B = os.environ.get("LVB_BASE", "").rstrip("/")
+if not B:
+    print("define LVB_BASE, p. ej.:  export LVB_BASE=http://TU_IP_LAN:8581")
+    sys.exit(2)
 TMP = Path("/tmp/audiopid")
 TMP.mkdir(exist_ok=True)
 

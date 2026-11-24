@@ -446,7 +446,7 @@ Rele sin clientes (ya usado)                        se apaga a los 900 s
 ```
 
 El pipeline reescribe `/data/playlist.m3u` y `/data/epg.xml`; Jellyfin los lee
-por HTTP de `http://10.0.0.21:8581`. No hay push: Jellyfin jala cuando su
+por HTTP de `http://TU_IP_LAN:8581`. No hay push: Jellyfin jala cuando su
 tarea programada despierta. Los canales NO se consumen todos a la vez: el rele
 se crea bajo demanda al primer cliente y solo los primeros 16 se precalientan.
 

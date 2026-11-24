@@ -10,6 +10,13 @@ el comando y la salida estan en el commit que la introdujo.
 
 ### Corregido
 
+- **Auditoria del repositorio (mismo dia).** Se saco del arbol versionado la
+  unica IP de LAN que quedaba (`README.md` y `tests/banco_pid_audio.py`, que
+  ahora la toma de `LVB_BASE`), se completaron las referencias de enlace del
+  CHANGELOG (llegaban solo hasta 0.1.1, asi que los enlaces de 0.2.0 en
+  adelante estaban rotos) y el CI pasa a `permissions: contents: read` +
+  `concurrency` (minimo privilegio y una corrida por rama). Se anade
+  `SECURITY.md` con el camino de reporte y el alcance.
 - **Una peticion HTTP = una conexion TCP nueva, y una resolucion DNS nueva.**
   Todo el HTTP del proyecto iba por `urllib.request.urlopen`, que abre (y cierra)
   una conexion por llamada; y como Python no cachea `getaddrinfo`, cada apertura
@@ -421,6 +428,16 @@ comprobado y con los estandares verificados por CI.
 - `.dockerignore`: el contexto de build mandaba `.env`, `config/` y `data/` al
   daemon en cada build.
 
-[Sin publicar]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.1...HEAD
+[0.5.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.4...v0.5.0
+[0.4.4]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/releases/tag/v0.1.0
