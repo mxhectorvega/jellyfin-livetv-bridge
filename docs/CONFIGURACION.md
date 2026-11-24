@@ -107,6 +107,7 @@ LVB_HOST=0.0.0.0                # interfaz HTTP donde escuchar (0.0.0.0 = todas)
 LVB_PORT=8581                   # puerto HTTP (1 - 65535)
 LVB_PUBLIC_BASE=                # base publica en URLs del M3U (ej. http://192.168.1.50:8581); vacio = se deduce de la peticion
 LVB_BIND_IP=                    # IP concreta para bind; vacio = usa LVB_HOST (0.0.0.0)
+LVB_DNS=                        # DNS del contenedor (bloque dns: del compose); vacio = default del compose
 LVB_API_TOKEN=                  # token para POST /catalog y POST /reload; vacio = sin auth
 ```
 
@@ -128,10 +129,35 @@ LVB_RELAY_ENABLED=false         # activa el rele; el M3U publicara /relay/<id> e
 LVB_RELAY_USER_AGENT=           # User-Agent para peticiones del rele; vacio = sin UA (evita 403 en mdstrm)
 LVB_RELAY_REMENDAR=true         # coser PCR/PTS/DTS al cambiar de fuente (src/ts_splice.py)
 LVB_RELAY_PASO_CUADRO=3003      # ticks 90 kHz entre fuentes (3003 @29.97fps, 3600 @25fps); 1 - 90000
-LVB_RELAY_PRECALENTAR=true      # precalienta reles (primer byte ~0.02s); sostiene ~330 KB/s por canal
+LVB_RELAY_PRECALENTAR=true      # precalienta reles (primer byte ~0.02s); ver COSTO abajo
 LVB_RELAY_PRECALENTAR_MAX=16    # maximo reles precalentados a la vez (0 - 4096); evita saturacion con Pluto (198 canales)
 LVB_RELAY_IDLE_S=900            # segundos sin clientes para apagar rele YA USADO (0 - 86400); precalentados no cuentan
 ```
+
+#### Costo del precalentado (medido 2026-11-24)
+
+`relay_precalentar` no cobra solo ancho de banda. Cada rele tiene un hilo lector
+que **relee el playlist del CDN** cada `SONDEO_S` (0.5 s, `src/relay.py:63`) y
+cada vuelta **abre una conexion TCP nueva y resuelve el DNS otra vez**: `_http()`
+va por `urllib.request.urlopen` (`src/relay.py:131`), sin keep-alive ni cache de
+DNS. El costo escala con el numero de reles, y **un rele que nadie mira sondea
+igual que uno que se ve** — y los precalentados (nunca usados) no los apaga la
+regla de ociosidad.
+
+Medido con 18 reles vivos y **cero** clientes (16 precalentados):
+
+```
+conexiones TCP/s al CDN      39
+consultas DNS/s              ~60
+lineas de log/dia en el FW   ~2.9 M  (~1.3 GB registrando la salida)
+```
+
+Por eso, cuando el arranque en frio cabe en la ventana del consumidor, conviene
+apagarlo. Para Pluto el arranque en frio medido es **1.5-1.8 s**, por debajo de
+los 3 s que espera el sondeo de Jellyfin: `relay_precalentar: false` en el bloque
+`settings:` de `sources.yml` quita ~90% del churn sin costo perceptible. Para
+fuentes con arranque en frio ~3.5-4.2 s (nacionales) el precalentado sigue siendo
+obligatorio.
 
 ### Cadencia
 

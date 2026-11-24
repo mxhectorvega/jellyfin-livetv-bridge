@@ -24,6 +24,14 @@ services:
       LVB_CONFIG_DIR: /config
       LVB_DATA_DIR: /data
       TZ: America/Mexico_City
+    # DNS del contenedor. El daemon de Docker fuerza 1.1.1.1/8.8.8.8 a
+    # TODOS los contenedores (daemon.json), asi que con la red del host el
+    # bridge tambien salia por ahi y sus consultas cruzaban la WAN (y el
+    # firewall las registraba). Aqui se apunta al DNS de la LAN: queda en
+    # el segmento y el resolver de la LAN lo cachea. El valor real va en .env
+    # (LVB_DNS).
+    dns:
+      - "${LVB_DNS:-1.1.1.1}"
     volumes:
       # sources.yml, .env y demas configuracion del usuario
       - /home/server/jellyfin-livetv-bridge/config:/config:rw

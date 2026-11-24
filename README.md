@@ -422,6 +422,17 @@ Que hace y que no:
   bajada POR CANAL: 10 canales son ~26 Mbps continuos. Por eso hay tope
   (`LVB_RELAY_PRECALENTAR_MAX`) y los reles que ya no se publican o que llevan
   rato sin clientes se apagan solos.
+- **Y no solo ancho de banda: churn de DNS y de conexiones (medido 2026-11-24).**
+  El lector relee el playlist del CDN cada `SONDEO_S` (0.5 s) y cada vuelta
+  abre una conexion TCP nueva y resuelve el DNS otra vez: `_http()` va por
+  `urllib.request.urlopen`, sin keep-alive ni cache de DNS. Con **18 reles vivos
+  y CERO clientes** (16 de ellos precalentados) se midieron **39 conexiones/s**
+  al CDN y **~60 consultas DNS/s**. Detras de un firewall que registra el trafico
+  de salida eso son ~2.9 M lineas/dia (~1.3 GB): el bridge era, sin saberlo, el
+  mayor generador de log de la casa. Para Pluto —arranque en frio medido de
+  1.5-1.8 s, por debajo de los 3 s que espera el sondeo— apagar el precalentado
+  (`relay_precalentar: false`) no cuesta nada perceptible y quita ~90% del churn.
+  Ver `docs/CONFIGURACION.md`.
 
 ## Cadencia de actualizacion
 
@@ -472,6 +483,7 @@ Todo en `.env` (ver `.env.example`) y en el bloque `settings:` de
 ```
 LVB_PUBLIC_BASE            URL base que se escribe en el M3U (alcanzable por Jellyfin)
 LVB_BIND_IP                interfaz donde se escucha (vacio = 0.0.0.0)
+LVB_DNS                    DNS del contenedor (vacio = el que imponga el daemon)
 LVB_API_TOKEN              token de los POST (vacio = sin auth)
 LVB_PROBE_MODE             liveness (recomendado) | ffprobe
 LVB_INCLUDE_PROTECTED      incluir cifrados/DRM marcados (true por defecto)

@@ -6,6 +6,28 @@ Versionado: [SemVer](https://semver.org/lang/es/).
 Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
 el comando y la salida estan en el commit que la introdujo.
 
+## [No publicado]
+
+### Documentado
+
+- **El precalentado tiene un costo que no estaba medido: churn de DNS y de
+  conexiones.** El lector de cada rele relee el playlist del CDN cada `SONDEO_S`
+  (0.5 s) y cada vuelta abre una conexion TCP nueva y resuelve el DNS otra vez
+  (`_http()` por `urllib.request.urlopen`, sin keep-alive ni cache de DNS).
+  Medido el 2026-11-24 con 18 reles vivos y **cero** clientes (16 precalentados):
+  **39 conexiones/s** al CDN y **~60 consultas DNS/s**. Detras de un firewall que
+  registra el trafico de salida son ~2.9 M lineas/dia (~1.3 GB): el bridge era el
+  mayor generador de log de la casa sin que nadie lo supiera. Consecuencia de
+  operacion: para Pluto, cuyo arranque en frio medido es 1.5-1.8 s (por debajo de
+  los 3 s que espera el sondeo de Jellyfin), `relay_precalentar: false` no cuesta
+  nada perceptible y quita ~90% del churn. Detalle en `docs/CONFIGURACION.md`.
+- **`LVB_DNS`: el contenedor puede salir por el resolver de la LAN.** El
+  `docker-compose.yml` declara ahora `dns: ["${LVB_DNS:-1.1.1.1}"]`, porque el
+  daemon de Docker impone su propio resolver a TODOS los contenedores y con
+  `network_mode: host` el bridge heredaba ese: sus consultas salian a internet
+  por un resolver ajeno al de la LAN. La variable vive en `.env` (no versionado),
+  asi que la IP real no entra al repositorio.
+
 ## [0.5.0] — 2026-11-22
 
 ### Eliminado
