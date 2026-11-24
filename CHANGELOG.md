@@ -6,21 +6,45 @@ Versionado: [SemVer](https://semver.org/lang/es/).
 Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
 el comando y la salida estan en el commit que la introdujo.
 
-## [No publicado]
+## [0.5.1] — 2026-11-24
+
+### Corregido
+
+- **Una peticion HTTP = una conexion TCP nueva, y una resolucion DNS nueva.**
+  Todo el HTTP del proyecto iba por `urllib.request.urlopen`, que abre (y cierra)
+  una conexion por llamada; y como Python no cachea `getaddrinfo`, cada apertura
+  pagaba tambien un DNS. El lector de cada rele sondea el playlist cada
+  `sondeo_s`, y el health-check sondea 203 canales cada 5 min, asi que el costo
+  escalaba con cada uno. Medido 2026-11-24 desde CT201: **~14 consultas DNS/s**
+  (18 reles vivos con CERO clientes, 16 de ellos precalentados, mas el
+  health-check), **~2.9 M lineas/dia (~1.3 GB)** en el log de un firewall que
+  registra el trafico de salida, y el rootfs de su VM (20 GB) al **69%** —a punto
+  de no poder escribir su propia configuracion. Ahora hay un **pool de conexiones
+  reusables por hilo** (`util.peticion` sobre `http.client`, con
+  `threading.local`), que usan rele, probe, health e ingesta; sigue redirecciones
+  y conserva el `HTTPError` que esperan los llamadores. Verificado: 2 sondeos =
+  1 conexion; el barrido completo de 203 canales = **5 conexiones en 346 s**; y
+  en reposo la medicion da **0 consultas DNS/s**. Queda un residuo de `ffprobe`,
+  que es un subproceso y no comparte el pool.
+
+### Anadido
+
+- **`relay_sondeo_s` / `LVB_RELAY_SONDEO_S`** (0.1 - 10.0, default 0.5): cada
+  cuanto relee el playlist el lector de un rele. Con la conexion reusada el
+  sondeo ya no cuesta un handshake, asi que la variable es latencia de
+  descubrimiento contra numero de peticiones. Los segmentos de Pluto miden ~4 s y
+  el cliente va `COLCHON_SEGMENTOS` (3) atras, de modo que 1-2 s no se notan;
+  `/relay/status` lo expone como `sondeo_s`.
 
 ### Documentado
 
-- **El precalentado tiene un costo que no estaba medido: churn de DNS y de
-  conexiones.** El lector de cada rele relee el playlist del CDN cada `SONDEO_S`
-  (0.5 s) y cada vuelta abre una conexion TCP nueva y resuelve el DNS otra vez
-  (`_http()` por `urllib.request.urlopen`, sin keep-alive ni cache de DNS).
-  Medido el 2026-11-24 con 18 reles vivos y **cero** clientes (16 precalentados):
-  **39 conexiones/s** al CDN y **~60 consultas DNS/s**. Detras de un firewall que
-  registra el trafico de salida son ~2.9 M lineas/dia (~1.3 GB): el bridge era el
-  mayor generador de log de la casa sin que nadie lo supiera. Consecuencia de
-  operacion: para Pluto, cuyo arranque en frio medido es 1.5-1.8 s (por debajo de
-  los 3 s que espera el sondeo de Jellyfin), `relay_precalentar: false` no cuesta
-  nada perceptible y quita ~90% del churn. Detalle en `docs/CONFIGURACION.md`.
+- **El precalentado tiene un costo que no estaba medido.** Ademas del ancho de
+  banda (~330 KB/s por canal), un rele que NADIE mira sondea el CDN igual que uno
+  que se ve, y los precalentados (nunca usados) no los apaga la regla de
+  ociosidad. Consecuencia de operacion: para Pluto, cuyo arranque en frio medido
+  es 1.5-1.8 s (por debajo de los 3 s que espera el sondeo de Jellyfin),
+  `relay_precalentar: false` no cuesta nada perceptible. Detalle en
+  `docs/CONFIGURACION.md`.
 - **`LVB_DNS`: el contenedor puede salir por el resolver de la LAN.** El
   `docker-compose.yml` declara ahora `dns: ["${LVB_DNS:-1.1.1.1}"]`, porque el
   daemon de Docker impone su propio resolver a TODOS los contenedores y con

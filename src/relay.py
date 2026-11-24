@@ -38,14 +38,13 @@ import threading
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .ts_mux import muxear
 from .ts_splice import Remendador, primer_pts
-from .util import get_logger
+from .util import error_http, get_logger, peticion
 
 log = get_logger("relay")
 
@@ -123,13 +122,20 @@ def _hex_a_bytes(texto: str) -> str:
 def _http(
     url: str, user_agent: str = "", timeout: float = 12.0, max_bytes: int = SEGMENTO_MAX_BYTES
 ) -> bytes:
-    """GET crudo con User-Agent opcional (urllib no lo pone por defecto)."""
-    headers = {"Accept": "*/*"}
+    """GET crudo con User-Agent opcional, REUSANDO la conexion.
+
+    - Discussion: el pool de conexiones vive en `util` (lo comparten el rele, el
+      probe y el health-check). Aqui solo se traduce su resultado a la forma que
+      esperan los llamadores: `urlopen` levantaba `HTTPError` en 4xx/5xx y ellos
+      deciden con `exc.code in (401, 403, 404, 410)`.
+    """
+    cabeceras = {"Accept": "*/*"}
     if user_agent:
-        headers["User-Agent"] = user_agent
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read(max_bytes)
+        cabeceras["User-Agent"] = user_agent
+    estado, cabeceras_resp, datos = peticion(url, "GET", cabeceras, timeout, max_bytes)
+    if estado >= 400:
+        raise error_http(url, estado, cabeceras_resp)
+    return datos
 
 
 class RelayHLS:
@@ -143,6 +149,7 @@ class RelayHLS:
         nombre: str = "",
         remendar: bool = True,
         paso_cuadro: int = 3003,
+        sondeo_s: float = SONDEO_S,
     ) -> None:
         """``fuentes`` es la principal seguida de sus respaldos (en orden).
 
@@ -186,7 +193,13 @@ class RelayHLS:
         self._error = ""
         self._refrescos = 0  # veces que hubo que re-resolver el master
         self._descargas = 0
-        self._espera_s = SONDEO_S  # espera entre vueltas del lector (backoff)
+        # Cada cuanto se relee el playlist. Era la constante SONDEO_S; ahora es
+        # configurable porque, con la conexion REUSADA (ver `_http`), sondear ya
+        # no cuesta un handshake: lo que queda es latencia de descubrimiento
+        # contra numero de peticiones. Los segmentos miden ~4 s y el cliente va
+        # `COLCHON_SEGMENTOS` atras, asi que 1-2 s no se notan.
+        self.sondeo_s = float(sondeo_s)
+        self._espera_s = self.sondeo_s  # espera entre vueltas del lector (backoff)
         # Remiendo de la linea de tiempo (ver src/ts_splice.py). Con una sola
         # fuente, o antes del primer cambio, `procesar` solo LEE: no escribe un
         # byte mientras el delta sea 0. El desplazamiento se calcula nada mas
@@ -602,9 +615,9 @@ class RelayHLS:
             # fallando, crece hasta REINTENTO_MAX_ESPERA_S: un origen muerto con
             # una sola fuente golpeaba el CDN cada ~0.5 s para siempre.
             self._espera_s = (
-                SONDEO_S
+                self.sondeo_s
                 if self._fallos == 0
-                else min(REINTENTO_MAX_ESPERA_S, SONDEO_S * (2 ** min(self._fallos, 6)))
+                else min(REINTENTO_MAX_ESPERA_S, self.sondeo_s * (2 ** min(self._fallos, 6)))
             )
             self._stop.wait(self._espera_s)
 
@@ -807,6 +820,7 @@ class RelayHLS:
                 "claves": len(self._claves),
                 "tuvo_clientes": self._tuvo_clientes,
                 "espera_s": round(self._espera_s, 2),
+                "sondeo_s": self.sondeo_s,
                 "remendando": self.remendar,
                 "remiendos": self._remiendos,
                 "ultimo_pts": self._rem.ultimo_pts_emitido,
@@ -915,6 +929,7 @@ class RelayPool:
         resolver=None,
         remendar: bool = True,
         paso_cuadro: int = 3003,
+        sondeo_s: float = SONDEO_S,
     ) -> RelayHLS:
         """Devuelve (creando si hace falta) el relé de un canal.
 
@@ -937,6 +952,7 @@ class RelayPool:
                     nombre=clave,
                     remendar=remendar,
                     paso_cuadro=paso_cuadro,
+                    sondeo_s=sondeo_s,
                 )
                 relay.arrancar()
                 self._relays[clave] = relay
@@ -945,6 +961,7 @@ class RelayPool:
                     relay.resolver = resolver
                 relay.remendar = remendar
                 relay.paso_cuadro = paso_cuadro
+                relay.sondeo_s = float(sondeo_s)
             return relay
 
     def stats(self) -> dict:

@@ -107,6 +107,7 @@ async def run_pipeline(state: AppState) -> dict[str, Any]:
                             resolver=resolver_de_canal(ch, settings),
                             remendar=settings.relay_remendar,
                             paso_cuadro=settings.relay_paso_cuadro,
+                            sondeo_s=settings.relay_sondeo_s,
                         )
                     report["reles_precalentados"] = len(objetivo)
                     report["reles_omitidos"] = max(0, len(publicados) - len(objetivo))

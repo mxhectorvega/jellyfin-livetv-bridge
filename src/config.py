@@ -177,6 +177,12 @@ class Settings:
     # que nunca se usaron (precalentado) no entran aqui: ese es el punto del
     # precalentado.
     relay_idle_s: float = 900.0
+    # Cada cuanto RELEE el playlist el lector de un rele. Con la conexion HTTP
+    # reusada (ver relay._http) sondear ya no cuesta un handshake TCP ni un DNS,
+    # asi que esto es latencia de descubrimiento contra numero de peticiones: los
+    # segmentos miden ~4 s y el cliente va 3 atras, de modo que 1-2 s no se nota.
+    # El default es el historico (relay.SONDEO_S).
+    relay_sondeo_s: float = 0.5
 
     health_interval_s: float = DEFAULT_HEALTH_INTERVAL_S
     health_fails_to_disable: int = DEFAULT_HEALTH_FAILS
@@ -357,6 +363,14 @@ class Settings:
                 "relay_idle_s",
                 0.0,
                 86400.0,
+            ),
+            relay_sondeo_s=_range(
+                get("relay_sondeo_s", _env_str("LVB_RELAY_SONDEO_S", "0.5")),
+                float,
+                0.5,
+                "relay_sondeo_s",
+                0.1,
+                10.0,
             ),
             health_interval_s=_range(
                 get(

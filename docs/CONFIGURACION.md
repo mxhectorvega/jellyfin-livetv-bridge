@@ -90,6 +90,11 @@ health_backoff_base_s: float  # base de backoff exponencial (0.1 - 3600.0)
 health_backoff_max_s: float   # tope de backoff (0.1 - 86400.0)
 hwaccel: str                  # "auto" | "vaapi" | "qsv" | "cpu" | "off"
 max_transcodes: int           # transcodificaciones simultaneas (0 - 64)
+relay_enabled: bool           # publicar /relay/<id> en vez de /stream/<id>
+relay_precalentar: bool       # precalentar los publicados al terminar el pipeline
+relay_precalentar_max: int    # cuantos se precalientan (0 - 4096)
+relay_idle_s: float           # segundos sin clientes para apagar un rele usado (0.0 - 86400.0)
+relay_sondeo_s: float         # cada cuanto relee el playlist el lector (0.1 - 10.0)
 strip_patterns: list[str]     # regex para limpiar nombres de canal
 group_exclude: list[str]      # regex ^...$ para descartar grupos enteros
 ```
@@ -132,32 +137,37 @@ LVB_RELAY_PASO_CUADRO=3003      # ticks 90 kHz entre fuentes (3003 @29.97fps, 36
 LVB_RELAY_PRECALENTAR=true      # precalienta reles (primer byte ~0.02s); ver COSTO abajo
 LVB_RELAY_PRECALENTAR_MAX=16    # maximo reles precalentados a la vez (0 - 4096); evita saturacion con Pluto (198 canales)
 LVB_RELAY_IDLE_S=900            # segundos sin clientes para apagar rele YA USADO (0 - 86400); precalentados no cuentan
+LVB_RELAY_SONDEO_S=0.5          # cada cuanto RELEE el playlist el lector (0.1 - 10.0); con la conexion reusada es latencia contra nº de peticiones
 ```
 
 #### Costo del precalentado (medido 2026-11-24)
 
 `relay_precalentar` no cobra solo ancho de banda. Cada rele tiene un hilo lector
-que **relee el playlist del CDN** cada `SONDEO_S` (0.5 s, `src/relay.py:63`) y
-cada vuelta **abre una conexion TCP nueva y resuelve el DNS otra vez**: `_http()`
-va por `urllib.request.urlopen` (`src/relay.py:131`), sin keep-alive ni cache de
-DNS. El costo escala con el numero de reles, y **un rele que nadie mira sondea
-igual que uno que se ve** — y los precalentados (nunca usados) no los apaga la
-regla de ociosidad.
+que **relee el playlist del CDN** cada `relay_sondeo_s`, y **un rele que nadie
+mira sondea igual que uno que se ve**: los precalentados (nunca usados) no los
+apaga la regla de ociosidad.
 
-Medido con 18 reles vivos y **cero** clientes (16 precalentados):
+Hasta 0.5.0 cada una de esas vueltas abria una conexion TCP NUEVA y resolvia el
+DNS otra vez (`urllib.request.urlopen` no reusa ni cachea). Medido con 18 reles
+vivos y **cero** clientes (16 precalentados), mas el health-check de 203 canales:
 
 ```
-conexiones TCP/s al CDN      39
-consultas DNS/s              ~60
-lineas de log/dia en el FW   ~2.9 M  (~1.3 GB registrando la salida)
+consultas DNS/s desde CT201   ~14
+lineas de log/dia en el FW    ~2.9 M  (~1.3 GB registrando la salida)
+rootfs de la VM del firewall  69% de 20 GB
 ```
 
-Por eso, cuando el arranque en frio cabe en la ventana del consumidor, conviene
-apagarlo. Para Pluto el arranque en frio medido es **1.5-1.8 s**, por debajo de
+Desde 0.5.1 eso esta **corregido** por el pool de conexiones reusables
+(`util.peticion`): 2 sondeos = 1 conexion, el barrido completo de 203 canales son
+5 conexiones en 346 s, y en reposo la medicion da **0 consultas DNS/s** (lo que
+queda es `ffprobe`, un subproceso que no comparte el pool). El precalentado
+conserva su costo legitimo: ~330 KB/s de bajada continua POR CANAL.
+
+Aun asi conviene apagarlo cuando el arranque en frio cabe en la ventana del
+consumidor. Para Pluto el arranque en frio medido es **1.5-1.8 s**, por debajo de
 los 3 s que espera el sondeo de Jellyfin: `relay_precalentar: false` en el bloque
-`settings:` de `sources.yml` quita ~90% del churn sin costo perceptible. Para
-fuentes con arranque en frio ~3.5-4.2 s (nacionales) el precalentado sigue siendo
-obligatorio.
+`settings:` de `sources.yml` no cuesta nada perceptible. Para fuentes con arranque
+en frio ~3.5-4.2 s (nacionales) el precalentado sigue siendo obligatorio.
 
 ### Cadencia
 

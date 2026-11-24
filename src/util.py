@@ -1,7 +1,9 @@
 """Utilidades compartidas: HTTP, subprocess, escritura atomica y logs JSON.
 
 - Discussion: el proyecto no usa `requests` ni `httpx` en runtime. Todo el
-  HTTP sale de la stdlib (`urllib`) para mantener las dependencias al minimo.
+  HTTP sale de la stdlib (`http.client` sobre un pool de conexiones REUSABLES;
+  antes `urllib.request`, que abre una conexion por peticion) para mantener las
+  dependencias al minimo.
 - Important: toda escritura de artefactos (`playlist.m3u`, `epg.xml`,
   `state.json`) es ATOMICA (temporal + ``os.replace``): el consumidor puede
   estar leyendo justo cuando el pipeline escribe, y con reemplazo atomico
@@ -10,13 +12,15 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
 import subprocess
+import threading
 import time
 import urllib.error
-import urllib.request
+import urllib.parse
 import zlib
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
@@ -107,6 +111,143 @@ def _gunzip_acotado(data: bytes, max_bytes: int, url: str) -> bytes:
     return plano
 
 
+# ---------------------------------------------------------------------------
+# Conexiones HTTP(S) REUSABLES
+# ---------------------------------------------------------------------------
+# - Discussion: `urllib.request.urlopen` abre (y cierra) UNA conexion por
+#   peticion, y como Python no cachea `getaddrinfo`, cada una paga tambien una
+#   resolucion DNS. Medido 2026-11-24 desde CT201: el sondeo del rele y sobre
+#   todo el health-check (203 canales cada 5 min, ~4 peticiones por canal)
+#   generaban ~14 consultas DNS/s; detras de un firewall que registra el trafico
+#   de salida, ~2.9 M lineas/dia (~1.3 GB de log) y el rootfs de 20 GB lleno.
+#   Con la conexion viva, una peticion vuelve a costar lo que una peticion.
+# - Note: el cache es `threading.local` — una conexion por (hilo, esquema, host,
+#   puerto). El lector de cada rele y los hilos del executor de probe/health se
+#   reusan, asi que no hace falta lock y no hay contencion. Al morir el hilo sus
+#   sockets se liberan con el objeto local.
+# - Important: para que la conexion se pueda reusar hay que LEER el cuerpo
+#   entero (o descartarla). Una respuesta a medio leer deja el socket inservible
+#   y el siguiente `request()` falla: por eso `peticion` suelta la conexion
+#   cuando quedo cola.
+_local = threading.local()
+# Cuantas redirecciones se siguen antes de rendirse. `urlopen` las seguia solo;
+# con http.client hay que hacerlo a mano o un 302 se convierte en error.
+REDIRECT_MAX = 5
+_REDIRECT = (301, 302, 303, 307, 308)
+
+
+def conexiones() -> dict:
+    cache = getattr(_local, "conns", None)
+    if cache is None:
+        cache = {}
+        _local.conns = cache
+    return cache
+
+
+def partir_url(url: str) -> tuple[str, str, int, str]:
+    """(esquema, host, puerto, ruta?query) de una URL."""
+    partes = urllib.parse.urlsplit(url)
+    esquema = (partes.scheme or "http").lower()
+    host = partes.hostname or ""
+    puerto = partes.port or (443 if esquema == "https" else 80)
+    ruta = partes.path or "/"
+    if partes.query:
+        ruta += "?" + partes.query
+    return esquema, host, puerto, ruta
+
+
+def conexion(scheme: str, host: str, port: int, timeout: float):
+    """La conexion viva de ese destino, creandola la primera vez."""
+    cache = conexiones()
+    clave = (scheme, host, port)
+    conn = cache.get(clave)
+    if conn is None:
+        clase = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+        conn = clase(host, port, timeout=timeout)
+        cache[clave] = conn
+    else:
+        conn.timeout = timeout
+    return conn
+
+
+def soltar_conexiones(scheme: str = "", host: str = "", port: int = 0) -> None:
+    """Cierra (y olvida) la conexion de ese destino; sin destino, todas."""
+    cache = conexiones()
+    claves = list(cache) if not host else [(scheme, host, port)]
+    for clave in claves:
+        conn = cache.pop(clave, None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 — cerrar nunca debe tumbar al llamador
+                pass
+
+
+def error_http(url: str, estado: int, cabeceras: dict | None = None) -> urllib.error.HTTPError:
+    """Un `HTTPError` con `code`/`headers`, como los que lanzaba `urlopen`.
+
+    - Discussion: al dejar de usar urllib hay que levantar el MISMO tipo de
+      excepcion o quien decida con `exc.code in (401, 403, 404, 410)` pierde la
+      deteccion en silencio.
+    """
+    return urllib.error.HTTPError(url, estado, f"HTTP {estado}", cabeceras or {}, None)
+
+
+def peticion(
+    url: str,
+    metodo: str = "GET",
+    cabeceras: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_bytes: int = MAX_DOWNLOAD_BYTES,
+) -> tuple[int, dict, bytes]:
+    """Peticion HTTP(S) REUSANDO la conexion. Devuelve (estado, cabeceras, cuerpo).
+
+    - Discussion: sustituye a `urlopen` en todo el proyecto. Sigue redirecciones
+      hasta ``REDIRECT_MAX`` y NO levanta por 4xx/5xx: devuelve el estado y cada
+      llamador decide que hacer (unos quieren `HTTPError`, otros un
+      ``RuntimeError`` con el texto de siempre).
+    - Note: si el cuerpo trae mas de ``max_bytes`` la conexion se DESCARTA —no
+      se puede reusar una respuesta a medio leer— y se devuelve lo leido.
+    - Throws: ``RuntimeError`` si una redireccion no trae ``Location`` (respuesta
+      malformada) o si se encadenan mas de ``REDIRECT_MAX`` saltos.
+    """
+    cabeceras = dict(cabeceras or {})
+    cabeceras["Connection"] = "keep-alive"
+    destino = url
+    for _ in range(REDIRECT_MAX + 1):
+        scheme, host, port, ruta = partir_url(destino)
+        resp = None
+        for intento in (0, 1):
+            conn = conexion(scheme, host, port, timeout)
+            try:
+                conn.request(metodo, ruta, headers=cabeceras)
+                resp = conn.getresponse()
+                break
+            except Exception:
+                # Conexion muerta, o a medio usar porque el servidor la cerro:
+                # se descarta y se reintenta UNA vez con una nueva.
+                soltar_conexiones(scheme, host, port)
+                if intento:
+                    raise
+        estado = int(resp.status)
+        if estado in _REDIRECT:
+            salto = resp.getheader("Location")
+            resp.read(max_bytes)
+            if not salto:
+                soltar_conexiones(scheme, host, port)
+                raise RuntimeError(f"redireccion sin Location ({estado}): {destino}")
+            nuevo = urllib.parse.urljoin(destino, salto)
+            if partir_url(nuevo)[:3] != (scheme, host, port):
+                soltar_conexiones(scheme, host, port)
+            destino = nuevo
+            continue
+        cuerpo = resp.read(max_bytes)
+        if resp.read(1):
+            soltar_conexiones(scheme, host, port)  # habia mas cuerpo: no se reusa
+        return estado, dict(resp.headers), cuerpo
+    raise RuntimeError(f"demasiadas redirecciones ({REDIRECT_MAX}): {url}")
+
+
 def http_get(
     url: str,
     timeout: float = DEFAULT_TIMEOUT,
@@ -136,14 +277,16 @@ def http_get(
     request_headers.update(headers or {})
     if byte_range:
         request_headers["Range"] = byte_range
-    req = urllib.request.Request(url, headers=request_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = resp.read(max_bytes + 1)
-    except urllib.error.HTTPError as exc:
+        estado, _, data = peticion(url, "GET", request_headers, timeout, max_bytes + 1)
+    except urllib.error.HTTPError as exc:  # no deberia: peticion no levanta por 4xx
         raise RuntimeError(f"HTTP {exc.code} en {url}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"fallo de red en {url}: {exc.reason}") from exc
+    except Exception as exc:  # noqa: BLE001 — se conserva el texto de siempre
+        raise RuntimeError(f"fallo de red en {url}: {exc}") from exc
+    if estado >= 400:
+        raise RuntimeError(f"HTTP {estado} en {url}")
     if len(data) > max_bytes:
         raise RuntimeError(f"respuesta mayor a {max_bytes} bytes en {url}")
     if data[:2] == b"\x1f\x8b":
@@ -157,12 +300,11 @@ def http_head_status(url: str, timeout: float = DEFAULT_TIMEOUT) -> int:
     - Important: un ``0`` es fallo de CONEXION, no de ruta; no se lee como
       "el recurso no existe".
     """
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": DEFAULT_USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return int(resp.status)
-    except urllib.error.HTTPError as exc:
-        return int(exc.code)
+        estado, _, _ = peticion(
+            url, "HEAD", {"User-Agent": DEFAULT_USER_AGENT}, timeout, MAX_DOWNLOAD_BYTES
+        )
+        return int(estado)
     except Exception:  # noqa: BLE001 — cualquier fallo de red es "0"
         return 0
 

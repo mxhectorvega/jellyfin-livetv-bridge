@@ -422,17 +422,19 @@ Que hace y que no:
   bajada POR CANAL: 10 canales son ~26 Mbps continuos. Por eso hay tope
   (`LVB_RELAY_PRECALENTAR_MAX`) y los reles que ya no se publican o que llevan
   rato sin clientes se apagan solos.
-- **Y no solo ancho de banda: churn de DNS y de conexiones (medido 2026-11-24).**
-  El lector relee el playlist del CDN cada `SONDEO_S` (0.5 s) y cada vuelta
-  abre una conexion TCP nueva y resuelve el DNS otra vez: `_http()` va por
-  `urllib.request.urlopen`, sin keep-alive ni cache de DNS. Con **18 reles vivos
-  y CERO clientes** (16 de ellos precalentados) se midieron **39 conexiones/s**
-  al CDN y **~60 consultas DNS/s**. Detras de un firewall que registra el trafico
-  de salida eso son ~2.9 M lineas/dia (~1.3 GB): el bridge era, sin saberlo, el
-  mayor generador de log de la casa. Para Pluto —arranque en frio medido de
-  1.5-1.8 s, por debajo de los 3 s que espera el sondeo— apagar el precalentado
-  (`relay_precalentar: false`) no cuesta nada perceptible y quita ~90% del churn.
-  Ver `docs/CONFIGURACION.md`.
+- **Y no solo ancho de banda: churn de DNS y de conexiones (2026-11-24).** Cada
+  vuelta del lector abria una conexion TCP **nueva** y resolvia el DNS otra vez:
+  el HTTP iba por `urllib.request.urlopen`, que no reusa ni cachea (y Python no
+  cachea `getaddrinfo`). Medido con 18 reles vivos y CERO clientes (16
+  precalentados) mas el health-check de 203 canales: **~14 consultas DNS/s** desde
+  el contenedor, **~2.9 M lineas/dia (~1.3 GB)** en el log de un firewall que
+  registra la salida, y su rootfs de 20 GB al 69%. **Arreglado:** todas las
+  peticiones (rele, probe, health, ingesta) pasan por un **pool de conexiones
+  reusables por hilo** (`util.peticion`, sobre `http.client`); 2 sondeos = 1
+  conexion, el barrido de 203 canales = 5 conexiones en 346 s, y en reposo la
+  medicion da **0 consultas DNS/s**. Lo acompanan `relay_sondeo_s` (configurable)
+  y `relay_precalentar: false` cuando el arranque en frio cabe en la ventana del
+  consumidor. Ver `docs/CONFIGURACION.md`.
 
 ## Cadencia de actualizacion
 
@@ -494,6 +496,7 @@ LVB_RELAY_REMENDAR         coser la linea de tiempo al cambiar de fuente (true)
 LVB_RELAY_PASO_CUADRO      duracion de un cuadro en ticks de 90 kHz (3003)
 LVB_RELAY_PRECALENTAR_MAX  canales precalentados a la vez (cada uno ~330 KB/s)
 LVB_RELAY_IDLE_S           segundos sin clientes para apagar un rele ya usado
+LVB_RELAY_SONDEO_S         cada cuanto relee el playlist el lector (0.5)
 LVB_HEALTH_INTERVAL_S      intervalo del health-check
 LVB_HEALTH_FAILS_TO_DISABLE  fallos consecutivos antes de desactivar
 ```
