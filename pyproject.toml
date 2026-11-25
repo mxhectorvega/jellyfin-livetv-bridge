@@ -31,7 +31,7 @@ dev = [
   "httpx==0.28.1",
   "ruff==0.17.0",
   "mypy==1.14.0",
-  "types-PyYAML==6.0.12.12",
+  "types-PyYAML==6.0.12.20261113",
   "pytest-cov==6.0.0",
 ]
 
