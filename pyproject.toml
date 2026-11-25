@@ -20,7 +20,7 @@ classifiers = [
 # Las MISMAS versiones que requirements.txt. Hay una prueba que compara los dos
 # (tests/test_estandares.py) para que no se separen sin que nadie lo note.
 dependencies = [
-  "PyYAML==6.0.2",
+  "PyYAML==6.0.4",
   "fastapi==0.115.6",
   "uvicorn==0.34.0",
 ]

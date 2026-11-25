@@ -5,7 +5,7 @@
 #  - httpx   : cliente de test para FastAPI (starlette TestClient)
 #
 # Todo lo demas (HTTP, subprocess, XMLTV, gzip, logging JSON) usa la stdlib.
-PyYAML==6.0.2
+PyYAML==6.0.4
 fastapi==0.115.6
 uvicorn==0.34.0
 
