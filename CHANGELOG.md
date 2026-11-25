@@ -6,6 +6,18 @@ Versionado: [SemVer](https://semver.org/lang/es/).
 Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
 el comando y la salida estan en el commit que la introdujo.
 
+## [Sin publicar]
+
+### Anadido
+
+- **Respaldo de DNS en el contenedor.** El compose declara ahora un SEGUNDO
+  `nameserver` (`LVB_DNS_FALLBACK`): glibc pregunta al primero y, si no
+  contesta, al segundo. Antes el contenedor tenia UN solo resolver y una
+  caida de ese resolutor dejaba al bridge sin resolver el CDN. Medido tras
+  recrear el contenedor: `/etc/resolv.conf` sale con **dos** entradas
+  (`nameserver 10.0.0.22` y `nameserver 1.1.1.1`). El respaldo es de otro
+  proveedor a proposito y no se consulta mientras el primario responda.
+
 ## [0.5.2] — 2026-11-24
 
 ### Corregido
@@ -462,6 +474,7 @@ comprobado y con los estandares verificados por CI.
 - `.dockerignore`: el contexto de build mandaba `.env`, `config/` y `data/` al
   daemon en cada build.
 
+[Sin publicar]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.2...HEAD
 [0.5.2]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.4...v0.5.0

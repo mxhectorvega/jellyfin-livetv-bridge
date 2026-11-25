@@ -29,9 +29,12 @@ services:
     # bridge tambien salia por ahi y sus consultas cruzaban la WAN (y el
     # firewall las registraba). Aqui se apunta al DNS de la LAN: queda en
     # el segmento y el resolver de la LAN lo cachea. El valor real va en .env
-    # (LVB_DNS).
+    # (LVB_DNS). El SEGUNDO nameserver es RESPALDO: glibc lo consulta si el
+    # primero no contesta, asi que un AdGuard caido no deja al bridge sin
+    # resolver. Es de OTRO proveedor: mientras el primario viva, no se usa.
     dns:
       - "${LVB_DNS:-1.1.1.1}"
+      - "${LVB_DNS_FALLBACK:-8.8.8.8}"
     volumes:
       # sources.yml, .env y demas configuracion del usuario
       - /home/server/jellyfin-livetv-bridge/config:/config:rw
