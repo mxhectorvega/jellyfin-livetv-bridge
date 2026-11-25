@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jellyfin-livetv-bridge"
-version = "0.5.1"
+version = "0.5.2"
 description = "Puente de Live TV para Jellyfin: listas M3U/HLS a tuner + guia, con rele de colchon y cosido de la linea de tiempo."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,13 +30,32 @@ dev = [
   "pytest==8.3.4",
   "httpx==0.28.1",
   "ruff==0.17.0",
+  "mypy==1.14.0",
+  "types-PyYAML==6.0.12.12",
+  "pytest-cov==6.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/mxhectorvega/jellyfin-livetv-bridge"
 
+# ---------------------------------------------------------------------------
+# Empaquetado PEP 621 / src-layout (PyPA).
+#
+# El directorio fuente se llama ``src/`` (no se renombra) porque:
+#   1. ``docs/ESTANDARES.md`` cita rutas relativas a ``src/`` como evidencia
+#      comprobable; renombrarlo invalidaria la documentacion viva.
+#   2. PEP 621 + guia src-layout de PyPA recomiendan ``package-dir`` para mapear
+#      el nombre de distribucion al directorio fisico sin tocar el arbol.
+#   3. ``setuptools`` soporta ``package-dir = { "jellyfin_livetv_bridge" = "src" }``
+#      desde hace años; es la forma canonica de publicar ``jellyfin_livetv_bridge``
+#      manteniendo el layout ``src/`` intacto.
+# ---------------------------------------------------------------------------
 [tool.setuptools]
-packages = ["src"]
+packages = ["jellyfin_livetv_bridge"]
+package-dir = { "jellyfin_livetv_bridge" = "src" }
+
+[tool.setuptools.package-data]
+jellyfin_livetv_bridge = ["py.typed"]
 
 # ---------------------------------------------------------------------------
 # Estilo. La regla se FIJA aqui: 100 columnas, y ruff la hace cumplir en CI.
@@ -56,3 +75,53 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+# Cobertura (pytest-cov). ``source = src`` mide solo el codigo de produccion;
+# ``omit = ["tests/*"]`` evita contaminar el porcentaje con el propio banco.
+# ``fail_under`` se fija al valor actual medido MENOS 1 punto para no romper
+# por ruido estadistico; se subira cuando la cobertura crezca de verdad.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 77
+show_missing = true
+skip_covered = true
+
+# ---------------------------------------------------------------------------
+# mypy -- configuracion NO estricta (sin ``strict = true``) pero con guardias
+# utiles para detectar errores reales sin ruido excesivo.
+#
+# - python_version = "3.12" : la minima soportada (pyproject: requires-python)
+# - warn_unused_ignores     : avisa si un ``# type: ignore`` deja de ser necesario
+# - no_implicit_optional    : ``x: T = None`` es error; hay que escribir ``x: T | None``
+# - check_untyped_defs      : revisa el cuerpo de funciones sin anotaciones
+# - disallow_untyped_defs   : NO (exigiria anotar TODO; lo dejamos opt-in)
+# - ignore_missing_imports  : solo para modulos sin stubs donde el ignore es
+#                             minimo y documentado (p.ej. tests con fixtures)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+pretty = true
+
+# Modulos de pruebas: permisivos con fixtures y mocks, pero sin silenciar
+# modulos enteros a lo bruto. Cada ignore tiene nombre y motivo.
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_missing_imports = true
+allow_untyped_globals = true
+allow_untyped_decorators = true
+# Fixtures y builders de test construyen objetos dinamicamente; no vale la pena
+# tipar cada helper. Los ignores puntuales en el codigo de test cubren lo necesario.
+
+# types-PyYAML cubre yaml.safe_load etc.; sin esto mypy ve Any en todo el arbol.
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = false

@@ -19,7 +19,7 @@ from src.playlist import (
 
 
 def _ch(cid: str, catalog: str, **kw) -> Channel:
-    base = dict(
+    base: dict[str, object] = dict(
         id=cid,
         name=cid,
         tvg_id=cid,
@@ -29,7 +29,7 @@ def _ch(cid: str, catalog: str, **kw) -> Channel:
         probe=ProbeResult(accessible=True, video_codec="h264", audio_codec="aac"),
     )
     base.update(kw)
-    return Channel(**base)
+    return Channel(**base)  # type: ignore[arg-type]
 
 
 def _canales() -> list[Channel]:

@@ -10,7 +10,7 @@ from src.playlist import build_m3u, channel_url, select_for_output, write_playli
 
 
 def _canal(**kw) -> Channel:
-    base = dict(
+    base: dict[str, object] = dict(
         id="uno.mx",
         name="Canal Uno",
         source_url="https://origen.invalid/u.m3u8",
@@ -18,7 +18,7 @@ def _canal(**kw) -> Channel:
         group="Demo",
     )
     base.update(kw)
-    return Channel(**base)
+    return Channel(**base)  # type: ignore[arg-type]
 
 
 def test_channel_url_apunta_al_proxy(settings: Settings):

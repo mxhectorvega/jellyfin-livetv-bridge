@@ -25,7 +25,7 @@ import zlib
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 DEFAULT_USER_AGENT = "jellyfin-livetv-bridge/0.1 (+https://example.invalid)"
 DEFAULT_TIMEOUT = 20.0
@@ -190,7 +190,10 @@ def error_http(url: str, estado: int, cabeceras: dict | None = None) -> urllib.e
       excepcion o quien decida con `exc.code in (401, 403, 404, 410)` pierde la
       deteccion en silencio.
     """
-    return urllib.error.HTTPError(url, estado, f"HTTP {estado}", cabeceras or {}, None)
+    # HTTPError espera `Mapping[str, str]` y typeshed declara `Message[str, str]`:
+    # un cast explicito, sin cambiar el comportamiento.
+    hdrs: dict[str, str] = cabeceras if cabeceras is not None else {}
+    return urllib.error.HTTPError(url, estado, f"HTTP {estado}", cast(Any, hdrs), None)
 
 
 def peticion(
@@ -216,7 +219,7 @@ def peticion(
     destino = url
     for _ in range(REDIRECT_MAX + 1):
         scheme, host, port, ruta = partir_url(destino)
-        resp = None
+        resp: http.client.HTTPResponse | None = None
         for intento in (0, 1):
             conn = conexion(scheme, host, port, timeout)
             try:
@@ -229,6 +232,8 @@ def peticion(
                 soltar_conexiones(scheme, host, port)
                 if intento:
                     raise
+        # resp siempre se asigna en el break del try; si no, la excepcion subio.
+        assert resp is not None
         estado = int(resp.status)
         if estado in _REDIRECT:
             salto = resp.getheader("Location")

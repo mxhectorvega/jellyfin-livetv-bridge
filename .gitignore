@@ -23,3 +23,8 @@ __pycache__/
 *.bak-*
 .env.bak-*
 /sources.yml
+
+# Artefactos de empaquetado (los crea pip wheel / build)
+build/
+dist/
+*.egg-info/

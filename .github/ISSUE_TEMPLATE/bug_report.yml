@@ -1,0 +1,112 @@
+name: "Reporte de bug"
+description: "Reporta un fallo reproducible en el puente"
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Completa los campos. Un reporte sin pasos para reproducir se cierra sin mas.
+
+  - type: input
+    id: version
+    attributes:
+      label: "Version"
+      description: "Salida de `docker compose exec livetv-bridge python -c \"import src.main; print(src.main.__version__)\"` o etiqueta de la imagen"
+      placeholder: "0.5.1"
+    validations:
+      required: true
+
+  - type: input
+    id: arch
+    attributes:
+      label: "Arquitectura / SO del host"
+      description: "Ej. `linux/amd64` en Proxmox LXC, `linux/arm64` en Raspberry Pi"
+      placeholder: "linux/amd64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Pasos para reproducir"
+      description: "Comandos exactos, curls, o clicks en Jellyfin. Incluye la salida que ves y la que esperas."
+      placeholder: |
+        1. curl -s http://IP:8581/health
+        2. ...
+        3. Lo que pasa: ...
+        Lo que espero: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs relevantes"
+      description: "Salida de `docker compose logs livetv-bridge --tail=100` o fragmento del log JSON. Nada de secretos ni IPs de LAN."
+      placeholder: |
+        {"level":"ERROR","msg":"...","canal":"..."}
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: status
+    attributes:
+      label: "Salida de /status (canal afectado)"
+      description: "Copia solo el bloque del canal con fallo. Quita `source_url` si apareciera."
+      placeholder: |
+        "canal.afectado": {
+          "accesible": false,
+          "motivo": "...",
+          ...
+        }
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: "Fragmento de sources.yml (solo lo relevante)"
+      description: "La fuente y el canal afectado. Nada de URLs con token ni IPs reales."
+      placeholder: |
+        sources:
+          - name: "..."
+            url: "https://example.invalid/..."
+            catalog: "..."
+        channels:
+          - tvg_id: "canal.afectado"
+            catalog: "..."
+      render: yaml
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Area afectada"
+      options:
+        - "Ingesta / normalizacion (playlist.m3u, catalogo)"
+        - "Sonda / validacion (liveness, ffprobe)"
+        - "EPG / XMLTV"
+        - "Rele HLS (/relay/<id>, colchon, failover)"
+        - "Cosido de linea de tiempo (ts_splice, PCR/PTS/DTS)"
+        - "Muxeo de audio (ts_mux, PID, ADTS)"
+        - "API / endpoints"
+        - "Docker / arranque"
+        - "Otro"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Verificaciones"
+      options:
+        - label: "He buscado issues abiertos/cerrados y no encontre duplicado"
+          required: true
+        - label: "No hay secretos, tokens, ni IPs de LAN en este reporte"
+          required: true
+        - label: "Los pasos son minimos y deterministas (otro puede reproducirlo)"
+          required: true

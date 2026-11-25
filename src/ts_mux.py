@@ -282,8 +282,8 @@ def pat_a_paquetes(pmt_pid: int, programa: int, transport_stream_id: int = 0x000
     cuerpo.append(0xE0 | ((pmt_pid >> 8) & 0x1F))
     cuerpo.append(pmt_pid & 0xFF)
     largo = len(cuerpo) + 4  # lo que sigue al section_length, CRC incluido
-    seccion = bytearray([0x00, 0xB0 | ((largo >> 8) & 0x0F), largo & 0xFF]) + cuerpo
-    seccion = bytes(seccion) + struct.pack(">I", crc32_mpeg(bytes(seccion)))
+    seccion_ba = bytearray([0x00, 0xB0 | ((largo >> 8) & 0x0F), largo & 0xFF]) + cuerpo
+    seccion = bytes(seccion_ba) + struct.pack(">I", crc32_mpeg(bytes(seccion_ba)))
     return seccion_a_paquetes(seccion, PID_PAT)
 
 
@@ -398,7 +398,10 @@ def muxear(video: bytes, audio: bytes, pid_audio: int | None = None) -> tuple[by
     pmt_nuevo = seccion_a_paquetes(agregar_es(pmt_v, tipo_a, pid_a), pmt_v.pid)
     # Se descartan TODOS los PMT que declare el PAT, no solo el que se reescribe.
     pmts = set(leer_pmts_pids(video)) | {pmt_v.pid}
-    v_pkts = _paquetes(video, descartar=PSI_A_DESCARTAR | pmts)
+    # PSI_A_DESCARTAR es frozenset; _paquetes espera set[int] | None.
+    # Union de frozenset | set -> frozenset; convertimos a set.
+    descartar: set[int] = set(PSI_A_DESCARTAR | pmts)
+    v_pkts = _paquetes(video, descartar=descartar)
     a_pkts = _remapear(_paquetes(audio, conservar={entradas[0][1]}), entradas[0][1], pid_a)
     if not a_pkts:
         raise ValueError(f"el audio no trae paquetes del PID {entradas[0][1]:#x}")

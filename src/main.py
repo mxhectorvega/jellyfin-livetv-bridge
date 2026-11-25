@@ -266,6 +266,8 @@ async def main_async() -> None:
     refresh_hours = float((state.cfg.get("epg") or {}).get("refresh_hours") or 12)
     interval_s = max(3600.0, refresh_hours * 3600.0)
 
+    # state.monitor se asigna en build_state(); mypy no lo sabe.
+    assert state.monitor is not None
     tasks = [
         asyncio.create_task(pipeline_forever(state, interval_s)),
         asyncio.create_task(state.monitor.run_forever(lambda: canales_para_salud(state))),

@@ -1,0 +1,3 @@
+# Marker file for PEP 561 (py.typed).
+# Indicates that jellyfin_livetv_bridge supports static type checking.
+# See https://peps.python.org/pep-0561/

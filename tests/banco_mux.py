@@ -101,7 +101,9 @@ for f in aparte:
         infos, bw = [], 0
         for linea in master.splitlines():
             if linea.startswith("#EXT-X-STREAM-INF"):
-                bw = int(re.search(r"BANDWIDTH=(\d+)", linea).group(1))
+                match = re.search(r"BANDWIDTH=(\d+)", linea)
+                assert match is not None
+                bw = int(match.group(1))
             elif linea and not linea.startswith("#"):
                 infos.append((bw, urllib.parse.urljoin(c["source_url"], linea)))
         video_pl = max(infos, key=lambda p: p[0])[1]

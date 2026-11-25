@@ -128,6 +128,7 @@ def test_agregar_es_actualiza_section_length():
     """§2.4.4.9: section_length cuenta lo que sigue, CRC incluido."""
     buf = seccion_a_paquetes(pmt([(0x1B, PID_VIDEO)]), PID_PMT)
     p = leer_pmt(buf, PID_PMT)
+    assert p is not None
     largo_antes = ((p.seccion[1] & 0x0F) << 8) | p.seccion[2]
     nueva = agregar_es(p, 0x0F, PID_AUDIO)
     largo_despues = ((nueva[1] & 0x0F) << 8) | nueva[2]
@@ -137,6 +138,7 @@ def test_agregar_es_actualiza_section_length():
 def test_agregar_es_rechaza_un_pid_que_ya_esta():
     buf = seccion_a_paquetes(pmt([(0x1B, PID_VIDEO)]), PID_PMT)
     p = leer_pmt(buf, PID_PMT)
+    assert p is not None
     try:
         agregar_es(p, 0x0F, PID_VIDEO)
     except ValueError as exc:
@@ -319,6 +321,7 @@ def test_el_pid_del_audio_se_respeta_si_lo_da_el_rele():
     _, r = muxear(video, audio, pid_audio=0x1E00)
     assert r["pid_audio"] == 0x1E00
     p = leer_pmt(muxear(video, audio, pid_audio=0x1E00)[0], PID_PMT)
+    assert p is not None
     assert 0x1E00 in [pid for _, pid in es_de(p)]
 
 

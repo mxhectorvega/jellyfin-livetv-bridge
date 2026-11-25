@@ -6,6 +6,40 @@ Versionado: [SemVer](https://semver.org/lang/es/).
 Todas las cifras de este archivo se midieron. Cuando una entrada dice "medido",
 el comando y la salida estan en el commit que la introdujo.
 
+## [0.5.2] — 2026-11-24
+
+### Corregido
+
+- **`check_channel` reventaba en la rama «canal sin url».** Construia
+  `ProbeResult(mode=...)` y el campo se llama `method`: con un canal sin fuentes,
+  esa rama lanzaba `TypeError` en vez de devolver el resultado marcado como
+  inaccesible. Lo encontro mypy al anadir la comprobacion de tipos.
+- **Newlines finales.** `.editorconfig` exige `insert_final_newline` y el
+  gancho `end-of-file-fixer` lo repone: lo pide a gritos en el commit, y si nadie
+  mira el estado de salida el commit **aborta en silencio**. Corregido en los
+  cuatro archivos que lo habian perdido (`pyproject.toml`, `requirements.txt`,
+  `requirements-dev.txt` y el workflow) y en los nuevos de comunidad, que
+  nacieron sin el. Se anadieron `build/`, `dist/` y `*.egg-info/` al
+  `.gitignore`: son artefactos de empaquetado, no fuente.
+
+### Anadido
+
+- **Comprobacion de tipos (mypy).** Configuracion NO estricta pero con guardias
+  utiles (`warn_unused_ignores`, `no_implicit_optional`, `check_untyped_defs`),
+  `py.typed` empaquetado de verdad, y un paso de `mypy src tests` en el CI.
+  Punto de partida medido: **26 errores**; ahora 0.
+- **Cobertura medida (pytest-cov)**: **77.9%**, con `fail_under = 77` (el valor
+  actual menos un punto, para no romper por ruido estadistico). Paso nuevo en CI.
+- **Empaquetado correcto (PEP 621 / src-layout de PyPA).** `packages` +
+  `package-dir` mapean `src/` al paquete **`jellyfin_livetv_bridge`**; antes la
+  distribucion instalaba un paquete de nivel superior llamado literalmente
+  `src`. El directorio NO se renombra a proposito: `docs/ESTANDARES.md` cita
+  rutas `src/...` como evidencia comprobable y renombrarlo invalidaria ~30
+  citas. Verificado armando el wheel: `jellyfin_livetv_bridge-0.5.2-py3-none-any.whl`.
+- **Archivos de comunidad**: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
+  (Contributor Covenant 2.1), plantillas de issue y de PR, y `dependabot.yml`
+  (pip + github-actions, semanal).
+
 ## [0.5.1] — 2026-11-24
 
 ### Corregido
@@ -428,6 +462,7 @@ comprobado y con los estandares verificados por CI.
 - `.dockerignore`: el contexto de build mandaba `.env`, `config/` y `data/` al
   daemon en cada build.
 
+[0.5.2]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.4...v0.5.0
 [0.4.4]: https://github.com/mxhectorvega/jellyfin-livetv-bridge/compare/v0.4.3...v0.4.4

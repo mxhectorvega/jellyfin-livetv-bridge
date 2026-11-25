@@ -746,6 +746,7 @@ class RelayHLS:
             if time.monotonic() >= limite:
                 return
             self._stop.wait(0.2)
+        return None
 
     def _podar(self) -> None:
         """Suelta lo viejo. La ventana tiene TOPE DURO, pase lo que pase.

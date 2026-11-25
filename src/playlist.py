@@ -21,7 +21,7 @@ from .util import get_logger, write_atomic
 log = get_logger("playlist")
 
 
-def m3u_attr(valor: str) -> str:
+def m3u_attr(valor: str | None) -> str:
     """Sanea un valor para un atributo ``clave="valor"`` del M3U.
 
     - Discussion: los nombres, logos y grupos vienen de listas de TERCEROS

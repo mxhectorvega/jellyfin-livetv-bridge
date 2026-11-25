@@ -43,14 +43,14 @@ def make_channel():
     """Fabrica canales con valores por omision razonables."""
 
     def _make(**kwargs) -> Channel:
-        base = {
+        base: dict[str, object] = {
             "name": "Canal Prueba",
             "source_url": "https://example.invalid/canal/master.m3u8",
             "tvg_id": "canal.prueba",
             "group": "Demo",
         }
         base.update(kwargs)
-        return Channel(**base)
+        return Channel(**base)  # type: ignore[arg-type]
 
     return _make
 

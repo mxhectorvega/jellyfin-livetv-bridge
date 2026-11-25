@@ -413,7 +413,10 @@ def check_channel(channel: Channel, settings: Settings) -> ProbeResult:
         ultimo = resultado
         errores.append(f"[{idx}] {resultado.error or 'inaccesible'}")
     if ultimo is None:
-        return ProbeResult(mode=settings.probe_mode, error="canal sin url", checked_at=now_iso())
+        # BUG corregido (2026-11-24): ProbeResult no tiene campo 'mode' — el modo se
+        # guarda en 'method'. Con 'mode', esta rama (canal sin url) reventaba con
+        # TypeError en vez de devolver el resultado.
+        return ProbeResult(method=settings.probe_mode, error="canal sin url", checked_at=now_iso())
     ultimo.respaldo_idx = -1
     ultimo.error = " | ".join(errores)[:300]
     return ultimo

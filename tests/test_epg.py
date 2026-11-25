@@ -131,7 +131,9 @@ def test_render_xmltv_usa_ids_propios_y_deduplica(settings: Settings):
     assert ids == ["canal.uno"]
     # Dos programas iguales -> uno solo tras la dedupe.
     assert len(root.findall("programme")) == 1
-    assert root.find("programme").get("channel") == "canal.uno"
+    programme = root.find("programme")
+    assert programme is not None
+    assert programme.get("channel") == "canal.uno"
     assert settings.epg_file.exists()
 
 
@@ -172,6 +174,8 @@ def test_render_xmltv_publica_una_sola_parrilla_sin_traslapes(settings: Settings
 
     spans = [(p.get("start"), p.get("stop")) for p in root.findall("programme")]
     for (_, fin_previo), (inicio, _) in zip(spans, spans[1:], strict=False):
+        # p.get devuelve str | None; el test garantiza que no son None.
+        assert fin_previo is not None and inicio is not None
         assert fin_previo <= inicio
 
 

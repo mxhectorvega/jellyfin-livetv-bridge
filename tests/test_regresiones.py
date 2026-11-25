@@ -180,7 +180,7 @@ def test_servir_entrega_el_colchon_en_orden():
         datos = [next(gen) for _ in range(3)]
     finally:
         r._stop.set()
-        gen.close()
+        gen.close()  # type: ignore
     assert [d[1] for d in datos] == [1, 2, 3]
     assert r.clientes == 0, "el cliente se desengancha al cerrar el generador"
 
@@ -589,7 +589,8 @@ def test_rele_el_lector_poda_lo_consumido_y_no_espera():
     r._frente, r._primero = 19, 5
     r._clientes[1] = (17, time.monotonic())
     inicio = time.monotonic()
-    assert r._esperar_hueco(max_s=0.5) is None
+    # _esperar_hueco devuelve None; el assert verifica que no se bloquea.
+    assert r._esperar_hueco(max_s=0.5) is None  # type: ignore[func-returns-value]
     assert time.monotonic() - inicio < 0.1, "con material consumido debe podar y seguir"
     assert 1 not in r._buf and 16 not in r._buf
     assert 17 in r._buf
@@ -603,7 +604,7 @@ def test_rele_el_lector_espera_si_el_cliente_esta_al_frente():
     r._frente, r._primero = 19, 5
     r._clientes[1] = (5, time.monotonic())
     inicio = time.monotonic()
-    assert r._esperar_hueco(max_s=0.5) is None
+    assert r._esperar_hueco(max_s=0.5) is None  # type: ignore[func-returns-value]
     assert time.monotonic() - inicio >= 0.5, "debio esperar"
 
 
@@ -744,8 +745,11 @@ def test_rele_el_empalme_se_encadena():
     r._indice = 1
     r._remendar(_segmento_ts(500_000))
     tras_uno = r._rem.ultimo_pts_emitido
+    assert tras_uno is not None
     r._indice = 0
     salida = r._remendar(_segmento_ts(1_000))
     assert r._remiendos == 2
-    assert primer_pts(salida) == (tras_uno + r.paso_cuadro) % MOD
-    assert primer_pts(salida) > 1_000, "no volvio a la linea original"
+    pts = primer_pts(salida)
+    assert pts is not None
+    assert pts == (tras_uno + r.paso_cuadro) % MOD
+    assert pts > 1_000, "no volvio a la linea original"

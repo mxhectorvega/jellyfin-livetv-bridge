@@ -21,7 +21,8 @@ VACIO = "#EXTM3U\n"
 def _rele_con_manifiesto(manifiesto):
     """Rele con el manifiesto sustituido: sin red y con el CDN simulado."""
     r = RelayHLS(["https://origen.invalid/master.m3u8"], nombre="prueba")
-    r._leer_manifiesto = lambda url, *a, **k: manifiesto(url)
+    # Monkey-patch del metodo para tests: mypy no permite asignar a metodos.
+    r._leer_manifiesto = lambda url, *a, **k: manifiesto(url)  # type: ignore[method-assign]
     return r
 
 

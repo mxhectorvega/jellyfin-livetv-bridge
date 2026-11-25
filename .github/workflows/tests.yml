@@ -33,6 +33,10 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: pytest
         run: python -m pytest -q
+      - name: pytest con cobertura
+        run: python -m pytest --cov=src --cov-report=term-missing -q
+      - name: mypy
+        run: mypy src tests
 
   estilo:
     # El estilo se COMPRUEBA, no se pide por favor. Misma linea de 100 columnas
