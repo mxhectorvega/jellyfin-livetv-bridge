@@ -1,36 +1,41 @@
+# Dependabot: vigila, no empuja.
+#
+# Este repo FIJA versiones exactas a proposito (requirements.txt == las
+# dependencias de pyproject, y hay una prueba que lo comprueba), asi que un salto
+# MAJOR automatico no es una actualizacion: es un cambio de diseno que hay que
+# leer. Por eso los majors se IGNORAN y quedan para revision deliberada; lo que si
+# llega es el parche de seguridad y los minors, agrupados en UNA PR para no llenar
+# la bandeja.
 version: 2
 updates:
-  - package-ecosystem: "pip"
+  - package-ecosystem: pip
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
       time: "06:00"
-    open-pull-requests-limit: 5
+      timezone: America/Mexico_City
+    open-pull-requests-limit: 3
     groups:
-      dev-dependencies:
-        patterns:
-          - "pytest*"
-          - "httpx*"
-          - "ruff*"
-        update-types:
-          - "minor"
-          - "patch"
-    commit-message:
-      prefix: "deps(pip)"
-    labels:
-      - "dependencies"
-      - "pip"
+      pip-menores:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Ningun salto de version mayor: se revisa a mano (un FastAPI 0.x nuevo o
+      # un mypy 2.x pueden cambiar el contrato o la configuracion).
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: "github-actions"
+  - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
       time: "06:00"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps(gha)"
-    labels:
-      - "dependencies"
-      - "github-actions"
+      timezone: America/Mexico_City
+    open-pull-requests-limit: 2
+    ignore:
+      # Las actions se mueven igual que un binario: un major puede cambiar el
+      # runner o el contrato del workflow, y el CI es la unica puerta.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
