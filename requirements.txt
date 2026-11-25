@@ -6,7 +6,7 @@
 #
 # Todo lo demas (HTTP, subprocess, XMLTV, gzip, logging JSON) usa la stdlib.
 PyYAML==6.0.2
-fastapi==0.115.6
+fastapi==0.165.0
 uvicorn==0.34.0
 
 # --- desarrollo / pruebas (instalar con: pip install -r requirements-dev.txt) ---
